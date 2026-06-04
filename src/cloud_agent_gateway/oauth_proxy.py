@@ -590,6 +590,7 @@ async def ws_proxy(websocket: WebSocket) -> None:
 
             async def inject_binding_greeting():
                 """After upstream connects, create a new chat and inject binding prompt."""
+                nonlocal current_chat_id
                 _log(f"WS injection: coroutine started (username={username})")
                 try:
                     # Phase 1: try to get chat_id from client
