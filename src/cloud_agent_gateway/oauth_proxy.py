@@ -26,6 +26,7 @@ import os
 import secrets
 import sys
 import time
+import uuid
 from urllib.parse import parse_qs, urlencode
 
 import httpx
@@ -558,13 +559,24 @@ async def ws_proxy(websocket: WebSocket) -> None:
                         _log(f"WS c2u error: {exc}")
                         break
 
+            # ── Per-session state for binding prompt injection ──
+            chat_created = asyncio.Event()
+            current_chat_id: str | None = None
+
             async def u2c():
+                nonlocal current_chat_id
                 while True:
                     try:
                         data = await upstream.recv()
                         if isinstance(data, str):
                             try:
                                 ev = json.loads(data)
+                                # Detect "attached" → capture chat_id for injection
+                                if ev.get("event") == "attached":
+                                    cid = ev.get("chat_id")
+                                    if cid:
+                                        current_chat_id = cid
+                                        chat_created.set()
                                 _log(f"WS ← neo: {ev.get('event', ev.get('type','?'))}")
                             except Exception:
                                 _log(f"WS ← neo: raw {data[:60]}")
@@ -576,7 +588,32 @@ async def ws_proxy(websocket: WebSocket) -> None:
                         _log(f"WS u2c error: {exc}")
                         break
 
-            await asyncio.gather(c2u(), u2c(), return_exceptions=True)
+            async def inject_binding_greeting():
+                """After client creates chat, inject binding prompt."""
+                try:
+                    await asyncio.wait_for(chat_created.wait(), timeout=10)
+                    await asyncio.sleep(0.5)
+                    if current_chat_id:
+                        envelope = {
+                            "type": "message",
+                            "chat_id": current_chat_id,
+                            "content": (
+                                "用户刚刚登录了Web界面。请主动问候这个用户，"
+                                "并介绍频道绑定功能：用户可以绑定微信、钉钉等频道，"
+                                "这样以后即使不打开网页，也能通过绑定的频道接收你的消息。"
+                                "请用友好的语气引导用户，并询问他们是否想要绑定某个频道。"
+                            ),
+                            "sender_id": f"oauth:{username}",
+                            "sender_name": username,
+                        }
+                        await upstream.send(json.dumps(envelope))
+                        _log(f"WS → neo: injected binding greeting (cid={current_chat_id[:12]})")
+                except asyncio.TimeoutError:
+                    pass  # client didn't create a chat within 10s
+                except Exception as exc:
+                    _log(f"WS injection error: {exc}")
+
+            await asyncio.gather(c2u(), u2c(), inject_binding_greeting(), return_exceptions=True)
     except Exception as exc:
         _log(f"WS proxy error: {exc}")
     finally:
