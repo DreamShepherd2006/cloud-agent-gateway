@@ -789,7 +789,7 @@ async def http_proxy(request: Request) -> Response:
     if qs:
         upstream_url += f"?{qs}"
 
-    headers = {k: v for k, v in request.headers.items() if k.lower() != "host"}
+    headers = dict(request.headers)
     headers["x-nanobot-identity"] = _identity(request)
 
     body = await request.body()
