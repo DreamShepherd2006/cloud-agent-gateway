@@ -59,7 +59,7 @@ def discover() -> list[BindingSpec]:
     register() in each binding module.
     """
     try:
-        import deploy.cloud.channel_bindings  # noqa: F401
+        import cloud_agent_gateway.deploy.cloud.channel_bindings  # noqa: F401
     except ImportError:
         pass
     return list(_registry.values())
