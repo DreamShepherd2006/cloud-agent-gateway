@@ -139,6 +139,10 @@ if(x.origin===window.location.origin)x.searchParams.set('nbtoken',window.__NBT__
 return _f.call(this,typeof u==='string'?x.toString():new Request(x.toString(),u),o);};
 var _W=window.WebSocket;window.WebSocket=function(u,p){
 var x=new URL(u,window.location.origin);
+if(x.hostname==='127.0.0.1'||x.hostname==='localhost'){
+x.protocol=window.location.protocol==='https:'?'wss:':'ws:';
+x.host=window.location.host;x.port='';
+x.searchParams.set('nbtoken',window.__NBT__);}
 if(x.origin===window.location.origin)x.searchParams.set('nbtoken',window.__NBT__);
 return new _W(x.toString(),p);};
 window.WebSocket.prototype=_W.prototype;

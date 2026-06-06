@@ -16,7 +16,7 @@ from nanobot.channels.weixin import WeixinChannel, WeixinConfig
 __all__ = ["WeixinChannel", "WeixinConfig"]
 
 # ── Version guard ───────────────────────────────────────────
-_EXPECTED_NANOBOT_VERSION = "0.2.0"
+_EXPECTED_NANOBOT_VERSION = "0.2.1"
 
 try:
     from nanobot import __version__ as _nanobot_version
