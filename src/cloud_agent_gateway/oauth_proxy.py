@@ -1190,6 +1190,17 @@ def _check_internal(request: Request) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Startup — ensure binding session exists after container restart
+# ═══════════════════════════════════════════════════════════════════
+
+
+@app.on_event("startup")
+async def _startup_binding_session():
+    """Ensure the channel-binding pinned chat exists after container restart."""
+    _ensure_binding_session()
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Routes
 # ═══════════════════════════════════════════════════════════════════
 
