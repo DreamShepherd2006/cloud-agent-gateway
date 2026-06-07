@@ -40,6 +40,35 @@ from cloud_agent_gateway.channel_binding import (
 
 
 # ══════════════════════════════════════════════════
+# Persistent account.json path (mirrors wechat pattern)
+# ══════════════════════════════════════════════════
+
+def _account_path() -> str:
+    return os.path.join(
+        os.path.expanduser("~/.nanobot"), "feishu", "account.json"
+    )
+
+
+def _load_account() -> dict:
+    ap = _account_path()
+    if os.path.exists(ap):
+        try:
+            with open(ap) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def _save_account(app_id: str, app_secret: str) -> None:
+    ap = _account_path()
+    os.makedirs(os.path.dirname(ap), exist_ok=True)
+    with open(ap, "w") as f:
+        json.dump({"app_id": app_id, "app_secret": app_secret}, f, ensure_ascii=False)
+    os.chmod(ap, 0o600)
+
+
+# ══════════════════════════════════════════════════
 # OAuth state management (in-memory, shared within process)
 # ══════════════════════════════════════════════════
 
@@ -128,6 +157,9 @@ async def _bind(app_id: str, app_secret: str) -> dict:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
     os.chmod(cp, 0o600)
 
+    # ═══ 写入 account.json（持久化，供 nanobot 通道轮询使用）═══
+    _save_account(app_id, app_secret)
+
     if installed:
         return {"ok": True, "installed": True, "message": "飞书已绑定，应用已安装 ✅"}
     else:
@@ -139,7 +171,11 @@ async def _bind(app_id: str, app_secret: str) -> dict:
 
 
 def _is_bound() -> bool:
-    """Check if feishu is already configured."""
+    """Check if feishu is already configured (account.json is source of truth)."""
+    acc = _load_account()
+    if acc.get("app_id") and acc.get("app_secret"):
+        return True
+    # Fallback: check config.json for pre-existing binding
     cfg = load_json(config_path())
     fs = cfg.get("channels", {}).get("feishu", {})
     return fs.get("enabled", False) and bool(fs.get("app_id"))
