@@ -397,7 +397,10 @@ def _ensure_binding_session():
     _sidebar_path = f"{_webui_dir}/sidebar-state.json"
     _now = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
 
-    # Check if a pinned binding chat already exists
+    # Check if any pinned binding chats already exist
+    # Clean up ALL stale ones (not just the first) — otherwise old sessions
+    # from previous restarts accumulate and appear as duplicate pinned chats.
+    _any_deleted = False
     if _os.path.exists(_sidebar_path):
         try:
             with open(_sidebar_path) as _f:
@@ -412,10 +415,7 @@ def _ensure_binding_session():
                         with open(_sp) as _sf:
                             _first = _json.loads(_sf.readline())
                         if _first.get("metadata", {}).get("title") == BINDING_TITLE:
-                            # Existing binding chat found → delete and recreate
-                            # to ensure content is fresh (avoids Neo caching issues)
                             _os.unlink(_sp)
-                            # Also delete the WebUI transcript file
                             _tp = f"{_webui_dir}/websocket_{_cid}.jsonl"
                             if _os.path.exists(_tp):
                                 try:
@@ -423,14 +423,15 @@ def _ensure_binding_session():
                                 except Exception:
                                     pass
                             _state["pinned_keys"].remove(_pk)
-                            _state["updated_at"] = _now
-                            with open(_sidebar_path, "w") as _f:
-                                _json.dump(_state, _f, ensure_ascii=False, indent=2)
-                                _f.write("\n")
-                            _log(f"deleted old binding session (cid={_cid[:12]}) → will recreate")
-                            break  # stop searching, will fall through to create new one
+                            _any_deleted = True
+                            _log(f"deleted old binding session (cid={_cid[:12]})")
                     except Exception:
                         pass
+            if _any_deleted:
+                _state["updated_at"] = _now
+                with open(_sidebar_path, "w") as _f:
+                    _json.dump(_state, _f, ensure_ascii=False, indent=2)
+                    _f.write("\n")
         except Exception:
             pass
         except Exception:
