@@ -1,6 +1,9 @@
 """DingTalk credential-based channel binding.
 
 Registered via cloud_agent_gateway.channel_binding.register().
+
+Pattern: same as feishu/wechat — validate creds, write config.json + account.json,
+then the auto-reload patch polls account.json to start the channel at runtime.
 """
 
 from __future__ import annotations
@@ -21,15 +24,58 @@ from cloud_agent_gateway.channel_binding import (
 
 
 # ══════════════════════════════════════════════════
+# Persistent account.json path (mirrors feishu/wechat pattern)
+# ══════════════════════════════════════════════════
+
+def _account_path() -> str:
+    return os.path.join(
+        os.path.expanduser("~/.nanobot"), "dingtalk", "account.json"
+    )
+
+
+def _load_account() -> dict:
+    ap = _account_path()
+    if os.path.exists(ap):
+        try:
+            with open(ap) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def _save_account(client_id: str, client_secret: str) -> None:
+    ap = _account_path()
+    os.makedirs(os.path.dirname(ap), exist_ok=True)
+    with open(ap, "w") as f:
+        json.dump(
+            {"client_id": client_id, "client_secret": client_secret},
+            f,
+            ensure_ascii=False,
+        )
+    os.chmod(ap, 0o600)
+
+
+# ══════════════════════════════════════════════════
 # DingTalk binding logic
 # ══════════════════════════════════════════════════
 
 async def _bind(client_id: str, client_secret: str) -> dict:
-    """验证并写入钉钉凭证。"""
-    if not client_id or not client_secret:
-        return {"error": "client_id 和 client_secret 不能为空"}
+    """验证凭证，写入 config.json 和 account.json。
 
-    # 验证凭证可用性
+    Returns:
+        {"ok": True, "message": "..."}  成功
+        {"error": "..."}                  失败
+    """
+    if not client_id or not client_id.strip():
+        return {"error": "Client ID (AppKey) 不能为空"}
+    if not client_secret or not client_secret.strip():
+        return {"error": "Client Secret (AppSecret) 不能为空"}
+
+    client_id = client_id.strip()
+    client_secret = client_secret.strip()
+
+    # 验证凭证：尝试获取 access_token
     try:
         async with httpx.AsyncClient(timeout=15) as c:
             resp = await c.post(
@@ -37,33 +83,42 @@ async def _bind(client_id: str, client_secret: str) -> dict:
                 json={"appKey": client_id, "appSecret": client_secret},
             )
             if resp.status_code != 200:
-                return {"error": f"钉钉凭证无效 ({resp.status_code})"}
+                data = resp.json()
+                err_msg = data.get("message") or data.get("errmsg") or "凭证无效"
+                return {"error": f"钉钉凭证无效: {err_msg}"}
     except Exception as e:
         return {"error": f"无法连接钉钉 API: {e}"}
 
-    # 写入 config.json（与 nanobot dingtalk channel 配置兼容）
+    # 写入 config.json
     cp = config_path()
     cfg = load_json(cp)
     if "channels" not in cfg:
         cfg["channels"] = {}
     cfg["channels"]["dingtalk"] = {
         "enabled": True,
-        "clientId": client_id,
-        "clientSecret": client_secret,
-        "allowFrom": ["*"],
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "allow_from": ["*"],
     }
     with open(cp, "w") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
     os.chmod(cp, 0o600)
 
+    # 写入 account.json（持久化，供 nanobot 通道轮询使用）
+    _save_account(client_id, client_secret)
+
     return {"ok": True, "message": "钉钉已绑定"}
 
 
 def _is_bound() -> bool:
-    """Check if dingtalk is already configured."""
+    """Check if dingtalk is already configured (account.json is source of truth)."""
+    acc = _load_account()
+    if acc.get("client_id") and acc.get("client_secret"):
+        return True
+    # Fallback: check config.json for pre-existing binding
     cfg = load_json(config_path())
     dt = cfg.get("channels", {}).get("dingtalk", {})
-    return dt.get("enabled", False) and bool(dt.get("clientId"))
+    return dt.get("enabled", False) and bool(dt.get("client_id"))
 
 
 # ══════════════════════════════════════════════════
