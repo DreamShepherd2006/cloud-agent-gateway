@@ -82,7 +82,6 @@ p{{color:#999;margin-bottom:1rem;font-size:.9rem}}
 _MANUAL_CHANNELS = [
     # (name, display, icon, key_field_for_is_bound)
     ("whatsapp", "WhatsApp", "📲", "bridge_token"),
-    ("qq", "QQ", "🐧", "app_id"),
     ("wecom", "企业微信", "💼", "bot_id"),
     ("napcat", "Napcat (QQ)", "🐱", "ws_url"),
     ("mochat", "Mochat", "💬", "base_url"),
