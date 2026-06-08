@@ -46,7 +46,7 @@ def apply_patch(source: str, _context: str = "") -> str:
         '            _import_asyncio = __import__("asyncio")\n'
         '            _import_json = __import__("json")\n'
         '            _account_path = _import_os.path.join(\n'
-        '                _import_os.path.expanduser("~/.nanobot"), "qq", "account.json"\n'
+        '                _import_os.environ.get("NANOBOT_ACCOUNT_BASE", _import_os.path.expanduser("~/.nanobot")), "qq", "account.json"\n'
         '            )\n'
         '            self.logger.info(\n'
         '                "No QQ credentials configured. Waiting for account.json from web bind…"\n'

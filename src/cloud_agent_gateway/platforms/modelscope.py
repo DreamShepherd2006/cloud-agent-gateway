@@ -263,7 +263,7 @@ class ModelScopePlatform(CloudPlatformProtocol):
         elif not os.path.exists(tmpl_dst):
             _log("No template available — agents will need manual config")
 
-        # ── 4. Restore agent configs from dataset ──
+        # ── 4. Restore agent configs from dataset (only for missing/new agents) ──
         for item in os.listdir(dataset_dir):
             item_path = os.path.join(dataset_dir, item)
             cfg_file = os.path.join(item_path, "config.json")
@@ -273,8 +273,9 @@ class ModelScopePlatform(CloudPlatformProtocol):
                 dst_dir = f"{mount_path}/instances/{item}"
                 dst_cfg = f"{dst_dir}/config.json"
                 os.makedirs(dst_dir, exist_ok=True)
-                shutil.copy2(cfg_file, dst_cfg)
-                _log(f"restored: {item}/config.json")
+                if not os.path.isfile(dst_cfg):
+                    shutil.copy2(cfg_file, dst_cfg)
+                    _log(f"restored: {item}/config.json")
 
         return "\n".join(exports)
 
