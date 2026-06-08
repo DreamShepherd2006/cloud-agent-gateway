@@ -48,7 +48,15 @@ PLATFORM_SPECS: tuple[PlatformSpec, ...] = (
         detect_env="HF_SPACE",
         detect_env_alt="SPACE_ID",
         module=".hf_staging",
-        priority=20,
+        priority=20,  # checked before hf-spaces; skipped when CLOUD_DEMO_MODE=1
+    ),
+    PlatformSpec(
+        name="hf-spaces",
+        display_name="HF Spaces (Cloud Demo)",
+        detect_env="HF_SPACE",
+        detect_env_alt="SPACE_ID",
+        module=".hf_spaces",
+        priority=30,
     ),
 )
 
@@ -76,6 +84,10 @@ def _detect() -> CloudPlatformProtocol:
             # modelscope-squad shares detection with modelscope but is higher-priority.
             # Cloud Demo (CLOUD_DEMO_MODE=1) should use plain modelscope, not squad.
             if spec.name == "modelscope-squad" and _os.environ.get("CLOUD_DEMO_MODE") == "1":
+                continue
+            # hf-staging shares HF_SPACE detection with hf-spaces.
+            # Cloud Demo should use hf-spaces, not hf-staging (which imports squad_config_loader).
+            if spec.name == "hf-staging" and _os.environ.get("CLOUD_DEMO_MODE") == "1":
                 continue
             _log(spec.name)
             return _load_platform(spec)
