@@ -81,7 +81,7 @@ class ModelScopePlatform(CloudPlatformProtocol):
 
     login_route_path = "/login"
     # Cloud Demo uses OAuth proxy on /api/auth/*; staging uses nanobot directly on /auth/*
-    callback_route_path = os.environ.get("OAUTH_CALLBACK_PATH", "/auth/callback")
+    callback_route_path = os.environ.get("OAUTH_CALLBACK_PATH", "/api/auth/callback")
 
     async def exchange_token(self, request: Any) -> dict | None:
         """Manual OAuth token exchange — bypasses authlib nonce issues on MS."""
