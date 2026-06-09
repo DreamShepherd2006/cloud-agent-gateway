@@ -529,30 +529,32 @@ class ModelScopePlatform(PlatformProtocol):
                 _log(f"   🔑 SQUAD_RELAY_TOKEN mapped from {ms_key}")
                 break
 
-        # 3. Pull dataset from ModelScope
+        # 3. Pull dataset from ModelScope (always fresh — no cache fallback)
         dataset_dir = "/tmp/nanobot-legion-instances"
-        if not _os.path.isdir(dataset_dir):
-            ms_token = _os.environ.get("NANOBOT_Staging_modelscope_TOKEN", "")
-            if not ms_token:
-                try:
-                    with open(proc_env, "rb") as f:
-                        for item in f.read().split(b"\0"):
-                            if b"NANOBOT_Staging_modelscope_TOKEN" in item:
-                                ms_token = item.decode("utf-8", errors="replace").split("=", 1)[1]
-                                break
-                except Exception:
-                    pass
-            if ms_token:
-                _log("🔄 [Dataset] 从私有数据集拉取实例模板...")
-                repo = "Stone2006/nanobot-multi-agent-nightly-data"
-                url = f"https://oauth2:{ms_token}@www.modelscope.cn/datasets/{repo}.git"
-                try:
-                    _sp.run(["git", "clone", "--depth=1", url, dataset_dir],
-                            check=True, capture_output=True, timeout=60)
-                except Exception as exc:
-                    _log(f"⚠️ [Dataset] 拉取失败: {exc}")
-            else:
-                _log("⚠️ [Dataset] 缺少 MS Token，跳过拉取")
+        if _os.path.isdir(dataset_dir):
+            _shutil.rmtree(dataset_dir)
+
+        ms_token = _os.environ.get("NANOBOT_Staging_modelscope_TOKEN", "")
+        if not ms_token:
+            try:
+                with open(proc_env, "rb") as f:
+                    for item in f.read().split(b"\0"):
+                        if b"NANOBOT_Staging_modelscope_TOKEN" in item:
+                            ms_token = item.decode("utf-8", errors="replace").split("=", 1)[1]
+                            break
+            except Exception:
+                pass
+        if not ms_token:
+            raise RuntimeError("❌ 缺少 MS Token，无法拉取数据集配置")
+
+        _log("🔄 [Dataset] 从私有数据集拉取实例模板...")
+        repo = "Stone2006/nanobot-multi-agent-nightly-data"
+        url = f"https://oauth2:{ms_token}@www.modelscope.cn/datasets/{repo}.git"
+        try:
+            _sp.run(["git", "clone", "--depth=1", url, dataset_dir],
+                    check=True, capture_output=True, timeout=60)
+        except Exception as exc:
+            raise RuntimeError(f"❌ 数据集拉取失败: {exc}") from exc
 
         # 4. Copy template from dataset
         mount_path = "/mnt/workspace"
@@ -585,14 +587,13 @@ class ModelScopePlatform(PlatformProtocol):
                 else:
                     _log(f"ℹ️ [{item}] config.json already exists — skipping dataset restore")
 
-        # 5b. Restore squad_config from dataset (user-editable via dataset web UI)
+        # 5b. Restore squad_config from dataset (sole source — no fallback)
         squad_cfg_ds = f"{dataset_dir}/squad_config.ms-staging.json"
         squad_cfg_persist = f"{mount_path}/squad_config.json"
-        if _os.path.isfile(squad_cfg_ds):
-            _shutil.copy2(squad_cfg_ds, squad_cfg_persist)
-            _log("🔄 [Config] squad_config restored from dataset")
-        else:
-            _log("ℹ️ [Config] 数据集中无 squad_config，使用持久化版本")
+        if not _os.path.isfile(squad_cfg_ds):
+            raise RuntimeError(f"❌ 数据集中缺少 squad_config.ms-staging.json，无法启动")
+        _shutil.copy2(squad_cfg_ds, squad_cfg_persist)
+        _log("✅ [Config] squad_config 已从数据集同步")
 
         # 6. Seed neo workspace from dataset
         neo_ws = f"{mount_path}/instances/neo/workspace"
