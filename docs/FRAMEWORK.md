@@ -37,11 +37,15 @@
 ### Platform Abstraction (correct)
 
 ```
-CloudPlatformProtocol (框架层，不改)  ←──  平台实现 (部署层，可改)
-PlatformSpec (注册表)                    ├─ hf_spaces.py
-platform_setup.py                        └─ modelscope.py
+CloudPlatformProtocol (框架层，不改)  ←──  平台实现
+PlatformSpec (注册表)                    ├─ hf_spaces.py  (平台=hf, 引擎=nanobot, squad=false)
+  platform × engine × squad              ├─ hf_staging.py (平台=hf, 引擎=nanobot, squad=true)
+  + matches() 多层过滤                   ├─ modelscope.py (平台=ms, 引擎=nanobot, squad=false)
+                                         ├─ modelscope_squad.py (平台=ms, 引擎=nanobot, squad=true)
+platform_setup.py (CLI: python3 -m)      └─ hf_direct.py  (平台=hf, 引擎=—,      squad=true)
+  三维匹配 → 加载唯一匹配项
 
-加新平台 → 一个文件，框架零改动
+加新平台 → 一个文件 + 一行注册，框架零改动
 ```
 
 ### Channel Binding (was anti-pattern, now fixed)

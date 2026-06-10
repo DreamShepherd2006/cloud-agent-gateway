@@ -83,7 +83,7 @@ SQUAD_RELAY_TOKEN_{PLATFORM}_{space_name}
 - `SQUAD_RELAY_TOKEN_HF_nanobot_cloud_demo`
 - `SQUAD_RELAY_TOKEN_MS_ms_nanobot_cloud_demo`
 
-`platform_setup.py` 在启动时自动探测平台、展开环境变量、写入 shell profile。
+`python3 -m cloud_agent_gateway.platform_setup` 在启动时自动探测平台的三维坐标（platform × engine × squad）、展开环境变量、写入 shell profile。
 
 ### 4. 身份注入
 
