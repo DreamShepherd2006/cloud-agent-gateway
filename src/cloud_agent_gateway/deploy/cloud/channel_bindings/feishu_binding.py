@@ -33,39 +33,12 @@ from starlette.responses import HTMLResponse, Response
 
 from cloud_agent_gateway.channel_binding import (
     BindingSpec,
-    config_path,
-    load_json,
     register,
+    read_config_cloud,
+    read_credential_cloud,
+    write_config_cloud,
+    write_credential_cloud,
 )
-
-
-# ══════════════════════════════════════════════════
-# Persistent account.json path (mirrors wechat pattern)
-# ══════════════════════════════════════════════════
-
-def _account_path() -> str:
-    return os.path.join(
-        os.path.expanduser("~/.nanobot"), "feishu", "account.json"
-    )
-
-
-def _load_account() -> dict:
-    ap = _account_path()
-    if os.path.exists(ap):
-        try:
-            with open(ap) as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-
-def _save_account(app_id: str, app_secret: str) -> None:
-    ap = _account_path()
-    os.makedirs(os.path.dirname(ap), exist_ok=True)
-    with open(ap, "w") as f:
-        json.dump({"app_id": app_id, "app_secret": app_secret}, f, ensure_ascii=False)
-    os.chmod(ap, 0o600)
 
 
 # ══════════════════════════════════════════════════
@@ -142,9 +115,8 @@ async def _bind(app_id: str, app_secret: str) -> dict:
     except Exception as e:
         return {"error": f"无法连接飞书 API: {e}"}
 
-    # ═══ 写入 config.json ═══
-    cp = config_path()
-    cfg = load_json(cp)
+    # ═══ 写入 config.json + account.json（通过 PersistentStorageProtocol）═══
+    cfg = read_config_cloud()
     if "channels" not in cfg:
         cfg["channels"] = {}
     cfg["channels"]["feishu"] = {
@@ -153,12 +125,8 @@ async def _bind(app_id: str, app_secret: str) -> dict:
         "app_secret": app_secret,
         "allow_from": ["*"],
     }
-    with open(cp, "w") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
-    os.chmod(cp, 0o600)
-
-    # ═══ 写入 account.json（持久化，供 nanobot 通道轮询使用）═══
-    _save_account(app_id, app_secret)
+    write_config_cloud(cfg)
+    write_credential_cloud("feishu", {"app_id": app_id, "app_secret": app_secret})
 
     if installed:
         return {"ok": True, "installed": True, "message": "飞书已绑定，应用已安装 ✅"}
@@ -171,12 +139,12 @@ async def _bind(app_id: str, app_secret: str) -> dict:
 
 
 def _is_bound() -> bool:
-    """Check if feishu is already configured (account.json is source of truth)."""
-    acc = _load_account()
+    """Check if feishu is already configured (credential file is source of truth)."""
+    acc = read_credential_cloud("feishu")
     if acc.get("app_id") and acc.get("app_secret"):
         return True
     # Fallback: check config.json for pre-existing binding
-    cfg = load_json(config_path())
+    cfg = read_config_cloud()
     fs = cfg.get("channels", {}).get("feishu", {})
     return fs.get("enabled", False) and bool(fs.get("app_id"))
 
@@ -188,7 +156,7 @@ async def _verify_installed() -> tuple[bool, str]:
         (True, "ok message") if installed
         (False, "error message") if not
     """
-    cfg = load_json(config_path())
+    cfg = read_config_cloud()
     fs = cfg.get("channels", {}).get("feishu", {})
     app_id = fs.get("app_id", "")
     app_secret = fs.get("app_secret", "")

@@ -14,9 +14,9 @@ from starlette.responses import HTMLResponse, Response
 
 from cloud_agent_gateway.channel_binding import (
     BindingSpec,
-    config_path,
-    load_json,
     register,
+    read_config_cloud,
+    write_config_cloud,
 )
 
 
@@ -43,9 +43,8 @@ async def _bind(bot_token: str) -> dict:
     except Exception as e:
         return {"error": f"无法连接 Discord API: {e}"}
 
-    # 写入 config.json
-    cp = config_path()
-    cfg = load_json(cp)
+    # 写入 config.json（通过 PersistentStorageProtocol）
+    cfg = read_config_cloud()
     if "channels" not in cfg:
         cfg["channels"] = {}
     cfg["channels"]["discord"] = {
@@ -53,16 +52,14 @@ async def _bind(bot_token: str) -> dict:
         "token": bot_token.strip(),
         "allow_from": ["*"],
     }
-    with open(cp, "w") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
-    os.chmod(cp, 0o600)
+    write_config_cloud(cfg)
 
     return {"ok": True, "message": f"Discord 已绑定 (@{bot_name})"}
 
 
 def _is_bound() -> bool:
     """Check if discord is already configured."""
-    cfg = load_json(config_path())
+    cfg = read_config_cloud()
     dc = cfg.get("channels", {}).get("discord", {})
     return dc.get("enabled", False) and bool(dc.get("token"))
 

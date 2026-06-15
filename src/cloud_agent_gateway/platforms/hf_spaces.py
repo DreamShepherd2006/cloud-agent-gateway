@@ -40,6 +40,11 @@ class HFSpacesPlatform(CloudPlatformProtocol):
     def instance_path(self, name: str) -> str:
         return f"{self.data_root}/instances/{name}"
 
+    # Cloud Demo sessions live at data-root level (upstream nanobot layout),
+    # not under a specific instance's workspace/.
+    def _session_path(self, agent_id: str, session_key: str) -> str:
+        return f"{self.data_root}/instances/sessions/websocket_{session_key}.jsonl"
+
     # ── OAuth ──
 
     def register_oauth(self) -> Any:

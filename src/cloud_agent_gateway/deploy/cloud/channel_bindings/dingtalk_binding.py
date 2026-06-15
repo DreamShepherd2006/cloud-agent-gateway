@@ -17,43 +17,12 @@ from starlette.responses import HTMLResponse, Response
 
 from cloud_agent_gateway.channel_binding import (
     BindingSpec,
-    config_path,
-    load_json,
     register,
+    read_config_cloud,
+    read_credential_cloud,
+    write_config_cloud,
+    write_credential_cloud,
 )
-
-
-# ══════════════════════════════════════════════════
-# Persistent account.json path (mirrors feishu/wechat pattern)
-# ══════════════════════════════════════════════════
-
-def _account_path() -> str:
-    return os.path.join(
-        os.path.expanduser("~/.nanobot"), "dingtalk", "account.json"
-    )
-
-
-def _load_account() -> dict:
-    ap = _account_path()
-    if os.path.exists(ap):
-        try:
-            with open(ap) as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-
-def _save_account(client_id: str, client_secret: str) -> None:
-    ap = _account_path()
-    os.makedirs(os.path.dirname(ap), exist_ok=True)
-    with open(ap, "w") as f:
-        json.dump(
-            {"client_id": client_id, "client_secret": client_secret},
-            f,
-            ensure_ascii=False,
-        )
-    os.chmod(ap, 0o600)
 
 
 # ══════════════════════════════════════════════════
@@ -61,7 +30,7 @@ def _save_account(client_id: str, client_secret: str) -> None:
 # ══════════════════════════════════════════════════
 
 async def _bind(client_id: str, client_secret: str) -> dict:
-    """验证凭证，写入 config.json 和 account.json。
+    """验证凭证，写入 config.json 和 account.json（通过 PersistentStorageProtocol）。
 
     Returns:
         {"ok": True, "message": "..."}  成功
@@ -89,9 +58,8 @@ async def _bind(client_id: str, client_secret: str) -> dict:
     except Exception as e:
         return {"error": f"无法连接钉钉 API: {e}"}
 
-    # 写入 config.json
-    cp = config_path()
-    cfg = load_json(cp)
+    # 写入 config.json + account.json（通过平台持久化接口）
+    cfg = read_config_cloud()
     if "channels" not in cfg:
         cfg["channels"] = {}
     cfg["channels"]["dingtalk"] = {
@@ -100,23 +68,19 @@ async def _bind(client_id: str, client_secret: str) -> dict:
         "client_secret": client_secret,
         "allow_from": ["*"],
     }
-    with open(cp, "w") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
-    os.chmod(cp, 0o600)
-
-    # 写入 account.json（持久化，供 nanobot 通道轮询使用）
-    _save_account(client_id, client_secret)
+    write_config_cloud(cfg)
+    write_credential_cloud("dingtalk", {"client_id": client_id, "client_secret": client_secret})
 
     return {"ok": True, "message": "钉钉已绑定"}
 
 
 def _is_bound() -> bool:
-    """Check if dingtalk is already configured (account.json is source of truth)."""
-    acc = _load_account()
+    """Check if dingtalk is already configured (credential file is source of truth)."""
+    acc = read_credential_cloud("dingtalk")
     if acc.get("client_id") and acc.get("client_secret"):
         return True
     # Fallback: check config.json for pre-existing binding
-    cfg = load_json(config_path())
+    cfg = read_config_cloud()
     dt = cfg.get("channels", {}).get("dingtalk", {})
     return dt.get("enabled", False) and bool(dt.get("client_id"))
 

@@ -21,10 +21,12 @@ from starlette.responses import HTMLResponse, Response
 
 from cloud_agent_gateway.channel_binding import (
     BindingSpec,
-    config_path,
-    load_json,
     nanobot_home,
     register,
+    read_config_cloud,
+    read_credential_cloud,
+    write_config_cloud,
+    write_credential_cloud,
 )
 
 # ══════════════════════════════════════════════════
@@ -133,21 +135,18 @@ async def _check_status(qrcode_id: str) -> dict:
         bind["status"] = "confirmed"
         bind["token"] = token
 
-        # 写入 account.json（与 WeixinChannel._save_state 兼容）
+        # 写入 account.json（通过 PersistentStorageProtocol）
         # ⚠️ 必须清除旧的 context_tokens / typing_tickets / get_updates_buf，
         # 否则频道重启后用旧会话状态轮询 ilink 会立即 errcode -14（session expired）
         # 导致进入 60 分钟休眠，新 token 也无法使用。
-        acc = os.path.join(_weixin_state_dir(), "account.json")
-        existing = load_json(acc)
+        existing = read_credential_cloud("weixin")
         existing["token"] = token
         if base_url:
             existing["base_url"] = base_url
         existing["context_tokens"] = {}
         existing["typing_tickets"] = {}
         existing["get_updates_buf"] = ""
-        with open(acc, "w") as f:
-            json.dump(existing, f, ensure_ascii=False)
-        os.chmod(acc, 0o600)
+        write_credential_cloud("weixin", existing)
 
         return {"status": "confirmed", "message": "微信已绑定"}
 
@@ -174,7 +173,7 @@ async def _check_status(qrcode_id: str) -> dict:
 def _is_bound() -> bool:
     """Check if weixin is already bound (account.json with token exists)."""
     try:
-        data = load_json(os.path.join(_weixin_state_dir(), "account.json"))
+        data = read_credential_cloud("weixin")
         return bool(data.get("token"))
     except Exception:
         return False

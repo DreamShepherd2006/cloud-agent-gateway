@@ -361,24 +361,16 @@ BINDING_CHAT_CONTENT = f"""\
 
 def _get_binding_chat_id() -> str | None:
     """Return the binding chat ID from sidebar-state, or None."""
-    _data_root = os.environ.get("DATA_ROOT", "/data")
-    _sidebar_path = f"{_data_root}/instances/default/webui/sidebar-state.json"
-    _sessions_dir = f"{_data_root}/instances/sessions"
-    try:
-        with open(_sidebar_path) as _f:
-            _state = json.load(_f) or {}
-        for _pk in _state.get("pinned_keys", []):
-            if not isinstance(_pk, str) or not _pk.startswith("websocket:"):
-                continue
-            _cid = _pk.split(":", 1)[1]
-            _sp = f"{_sessions_dir}/websocket_{_cid}.jsonl"
-            if os.path.exists(_sp):
-                with open(_sp) as _sf:
-                    _first = json.loads(_sf.readline())
-                if _first.get("metadata", {}).get("title") == BINDING_TITLE:
-                    return _cid
-    except Exception:
-        pass
+    from cloud_agent_gateway.platforms import platform
+    _agent = "default"
+    _state = platform.read_sidebar_state(_agent)
+    for _pk in _state.get("pinned_keys", []):
+        if not isinstance(_pk, str) or not _pk.startswith("websocket:"):
+            continue
+        _cid = _pk.split(":", 1)[1]
+        _lines = platform.read_session(_agent, _cid)
+        if _lines and _lines[0].get("metadata", {}).get("title") == BINDING_TITLE:
+            return _cid
     return None
 
 
@@ -389,102 +381,59 @@ def _ensure_binding_session():
     (after WebSocket connects). Idempotent — only creates if no pinned binding
     chat exists.
     """
-    import os as _os, json as _json, uuid as _uuid, time as _time
-
-    _data_root = _os.environ.get("DATA_ROOT", "/data")
-    _sessions_dir = f"{_data_root}/instances/sessions"
-    _webui_dir = f"{_data_root}/instances/default/webui"
-    _sidebar_path = f"{_webui_dir}/sidebar-state.json"
+    import uuid as _uuid, time as _time
+    from cloud_agent_gateway.platforms import platform
+    _agent = "default"
     _now = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
 
-    # Check if any pinned binding chats already exist
-    # Clean up ALL stale ones (not just the first) — otherwise old sessions
-    # from previous restarts accumulate and appear as duplicate pinned chats.
+    # Clean up ALL stale binding sessions (not just the first) — otherwise
+    # old sessions from previous restarts accumulate as duplicate pinned chats.
+    _state = platform.read_sidebar_state(_agent)
     _any_deleted = False
-    if _os.path.exists(_sidebar_path):
-        try:
-            with open(_sidebar_path) as _f:
-                _state = _json.load(_f) or {}
-            for _pk in list(_state.get("pinned_keys", [])):
-                if not isinstance(_pk, str) or not _pk.startswith("websocket:"):
-                    continue
-                _cid = _pk.split(":", 1)[1]
-                _sp = f"{_sessions_dir}/websocket_{_cid}.jsonl"
-                if _os.path.exists(_sp):
-                    try:
-                        with open(_sp) as _sf:
-                            _first = _json.loads(_sf.readline())
-                        if _first.get("metadata", {}).get("title") == BINDING_TITLE:
-                            _os.unlink(_sp)
-                            _tp = f"{_webui_dir}/websocket_{_cid}.jsonl"
-                            if _os.path.exists(_tp):
-                                try:
-                                    _os.unlink(_tp)
-                                except Exception:
-                                    pass
-                            _state["pinned_keys"].remove(_pk)
-                            _any_deleted = True
-                            _log(f"deleted old binding session (cid={_cid[:12]})")
-                    except Exception:
-                        pass
-            if _any_deleted:
-                _state["updated_at"] = _now
-                with open(_sidebar_path, "w") as _f:
-                    _json.dump(_state, _f, ensure_ascii=False, indent=2)
-                    _f.write("\n")
-        except Exception:
-            pass
-        except Exception:
-            pass
+    for _pk in list(_state.get("pinned_keys", [])):
+        if not isinstance(_pk, str) or not _pk.startswith("websocket:"):
+            continue
+        _cid = _pk.split(":", 1)[1]
+        _lines = platform.read_session(_agent, _cid)
+        if _lines and _lines[0].get("metadata", {}).get("title") == BINDING_TITLE:
+            platform.delete_session(_agent, _cid)
+            _state["pinned_keys"].remove(_pk)
+            _any_deleted = True
+            _log(f"deleted old binding session (cid={_cid[:12]})")
+    if _any_deleted:
+        _state["updated_at"] = _now
+        platform.write_sidebar_state(_agent, _state)
 
     # Create a new binding chat
     _cid = str(_uuid.uuid4())
     _key = f"websocket:{_cid}"
-    _fpath = f"{_sessions_dir}/websocket_{_cid}.jsonl"
-    _os.makedirs(_sessions_dir, exist_ok=True)
 
-    with open(_fpath, "w") as _f:
-        _f.write(_json.dumps({
+    platform.write_session(_agent, _cid, [
+        {
             "_type": "metadata", "key": _key,
             "created_at": _now, "updated_at": _now,
             "metadata": {"title": BINDING_TITLE, "webui": True},
             "last_consolidated": 0,
-        }, ensure_ascii=False) + "\n")
-        _f.write(_json.dumps({
+        },
+        {
             "role": "user", "content": BINDING_CHAT_CONTENT,
             "timestamp": _now,
-        }, ensure_ascii=False) + "\n")
+        },
+    ])
 
-    # Also write the WebUI transcript file so Neo's API returns content.
-    # The WebUI reads from {data_dir}/webui/ (not {sessions_dir}).
-    _tpath = f"{_webui_dir}/websocket_{_cid}.jsonl"
-    with open(_tpath, "w") as _tf:
-        _tf.write(_json.dumps({
-            "event": "delta", "text": BINDING_CHAT_CONTENT, "chat_id": _cid,
-        }, ensure_ascii=False) + "\n")
-        _tf.write(_json.dumps({
-            "event": "stream_end", "text": BINDING_CHAT_CONTENT, "chat_id": _cid,
-        }, ensure_ascii=False) + "\n")
-        _tf.write(_json.dumps({
-            "event": "turn_end", "chat_id": _cid,
-        }, ensure_ascii=False) + "\n")
+    # WebUI transcript
+    platform.write_webui_transcript(_agent, _cid, [
+        {"event": "delta", "text": BINDING_CHAT_CONTENT, "chat_id": _cid},
+        {"event": "stream_end", "text": BINDING_CHAT_CONTENT, "chat_id": _cid},
+        {"event": "turn_end", "chat_id": _cid},
+    ])
 
     # Pin it
-    _os.makedirs(_webui_dir, exist_ok=True)
-    _sidebar_state = {}
-    if _os.path.exists(_sidebar_path):
-        try:
-            with open(_sidebar_path) as _f:
-                _sidebar_state = _json.load(_f) or {}
-        except Exception:
-            pass
-
+    _sidebar_state = platform.read_sidebar_state(_agent)
     _sidebar_state.setdefault("pinned_keys", []).insert(0, _key)
     _sidebar_state["updated_at"] = _now
     _sidebar_state.setdefault("schema_version", 1)
-    with open(_sidebar_path, "w") as _f:
-        _json.dump(_sidebar_state, _f, ensure_ascii=False, indent=2)
-        _f.write("\n")
+    platform.write_sidebar_state(_agent, _sidebar_state)
 
     _log(f"pre-created binding session + pin (cid={_cid[:12]})")
 
@@ -974,33 +923,22 @@ async def ws_proxy(websocket: WebSocket) -> None:
                 nonlocal current_chat_id
                 _log(f"WS setup_title: started (username={username})")
                 try:
-                    import os as _os, json as _json, time as _time
-
-                    _data_root = _os.environ.get("DATA_ROOT", "/data")
-                    _sessions_dir = f"{_data_root}/instances/sessions"
-                    _webui_dir = f"{_data_root}/instances/default/webui"
-                    _sidebar_path = f"{_webui_dir}/sidebar-state.json"
+                    import time as _time
+                    from cloud_agent_gateway.platforms import platform
+                    _agent = "default"
                     _now = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
 
                     # ── Step 0: check for an existing pinned binding chat ──
                     _pinned_cid = None
-                    if _os.path.exists(_sidebar_path):
-                        try:
-                            with open(_sidebar_path) as _f:
-                                _state = _json.load(_f) or {}
-                            for _pk in _state.get("pinned_keys", []):
-                                if not isinstance(_pk, str) or not _pk.startswith("websocket:"):
-                                    continue
-                                _cid = _pk.split(":", 1)[1]
-                                _sp = f"{_sessions_dir}/websocket_{_cid}.jsonl"
-                                if _os.path.exists(_sp):
-                                    with open(_sp) as _sf:
-                                        _meta = _json.loads(_sf.readline())
-                                    if _meta.get("metadata", {}).get("title") == BINDING_TITLE:
-                                        _pinned_cid = _cid
-                                        break
-                        except Exception:
-                            pass
+                    _state = platform.read_sidebar_state(_agent)
+                    for _pk in _state.get("pinned_keys", []):
+                        if not isinstance(_pk, str) or not _pk.startswith("websocket:"):
+                            continue
+                        _cid = _pk.split(":", 1)[1]
+                        _lines = platform.read_session(_agent, _cid)
+                        if _lines and _lines[0].get("metadata", {}).get("title") == BINDING_TITLE:
+                            _pinned_cid = _cid
+                            break
 
                     if _pinned_cid:
                         # Existing pinned binding chat → redirect to it
@@ -1039,83 +977,58 @@ async def ws_proxy(websocket: WebSocket) -> None:
                                 _log(f"WS setup_title: neo didn't attach new chat in 5s")
 
                     if current_chat_id:
-                        # ── Write session file ──
-                        _fname = f"websocket_{current_chat_id}.jsonl"
-                        _fpath = f"{_sessions_dir}/{_fname}"
                         _key = f"websocket:{current_chat_id}"
-                        _os.makedirs(_sessions_dir, exist_ok=True)
 
-                        if _os.path.exists(_fpath):
-                            with open(_fpath, "r+") as _f:
-                                _lines = _f.readlines()
-                                if _lines:
-                                    _meta = _json.loads(_lines[0])
-                                    _meta.setdefault("metadata", {})["title"] = BINDING_TITLE
-                                    _lines[0] = _json.dumps(_meta, ensure_ascii=False) + "\n"
-                                # Replace first user message content (or add new one)
-                                _found = False
-                                for _i, _line in enumerate(_lines[1:], 1):
-                                    try:
-                                        _entry = _json.loads(_line)
-                                        if _entry.get("role") == "user":
-                                            _entry["content"] = BINDING_CHAT_CONTENT
-                                            _entry["timestamp"] = _now
-                                            _lines[_i] = _json.dumps(_entry, ensure_ascii=False) + "\n"
-                                            _found = True
-                                            break
-                                    except Exception:
-                                        continue
-                                if not _found:
-                                    _lines.append(_json.dumps({
-                                        "role": "user", "content": BINDING_CHAT_CONTENT,
-                                        "timestamp": _now,
-                                    }, ensure_ascii=False) + "\n")
-                                _f.seek(0); _f.writelines(_lines); _f.truncate()
-                            # Also rewrite the WebUI transcript so content appears on open.
-                            _tpath = f"{_webui_dir}/websocket_{current_chat_id}.jsonl"
-                            with open(_tpath, "w") as _tf:
-                                _tf.write(_json.dumps({
-                                    "event": "delta", "text": BINDING_CHAT_CONTENT, "chat_id": current_chat_id,
-                                }, ensure_ascii=False) + "\n")
-                                _tf.write(_json.dumps({
-                                    "event": "stream_end", "text": BINDING_CHAT_CONTENT, "chat_id": current_chat_id,
-                                }, ensure_ascii=False) + "\n")
-                                _tf.write(_json.dumps({
-                                    "event": "turn_end", "chat_id": current_chat_id,
-                                }, ensure_ascii=False) + "\n")
-                            _log(f"WS setup_title: updated session + transcript (cid={current_chat_id[:12]})")
+                        # ── Write/update session file via platform ──
+                        _existing = platform.read_session(_agent, current_chat_id)
+                        if _existing:
+                            # Update: set title + replace first user message
+                            _existing[0].setdefault("metadata", {})["title"] = BINDING_TITLE
+                            _found = False
+                            for _entry in _existing[1:]:
+                                if _entry.get("role") == "user":
+                                    _entry["content"] = BINDING_CHAT_CONTENT
+                                    _entry["timestamp"] = _now
+                                    _found = True
+                                    break
+                            if not _found:
+                                _existing.append({
+                                    "role": "user", "content": BINDING_CHAT_CONTENT,
+                                    "timestamp": _now,
+                                })
+                            platform.write_session(_agent, current_chat_id, _existing)
+                            _log(f"WS setup_title: updated session (cid={current_chat_id[:12]})")
                         else:
-                            with open(_fpath, "w") as _f:
-                                _f.write(_json.dumps({
+                            # Create new
+                            platform.write_session(_agent, current_chat_id, [
+                                {
                                     "_type": "metadata", "key": _key,
                                     "created_at": _now, "updated_at": _now,
                                     "metadata": {"title": BINDING_TITLE, "webui": True},
                                     "last_consolidated": 0,
-                                }, ensure_ascii=False) + "\n")
-                                _f.write(_json.dumps({
+                                },
+                                {
                                     "role": "user", "content": BINDING_CHAT_CONTENT,
                                     "timestamp": _now,
-                                }, ensure_ascii=False) + "\n")
+                                },
+                            ])
                             _log(f"WS setup_title: created session (cid={current_chat_id[:12]})")
 
-                        # ── Pin to sidebar (idempotent) ──
-                        _os.makedirs(_webui_dir, exist_ok=True)
-                        _sidebar_state = {}
-                        if _os.path.exists(_sidebar_path):
-                            try:
-                                with open(_sidebar_path) as _f:
-                                    _sidebar_state = _json.load(_f) or {}
-                            except Exception:
-                                pass
+                        # WebUI transcript (always overwrite)
+                        platform.write_webui_transcript(_agent, current_chat_id, [
+                            {"event": "delta", "text": BINDING_CHAT_CONTENT, "chat_id": current_chat_id},
+                            {"event": "stream_end", "text": BINDING_CHAT_CONTENT, "chat_id": current_chat_id},
+                            {"event": "turn_end", "chat_id": current_chat_id},
+                        ])
 
+                        # ── Pin to sidebar (idempotent) ──
+                        _sidebar_state = platform.read_sidebar_state(_agent)
                         _pinned = _sidebar_state.setdefault("pinned_keys", [])
                         if _key not in _pinned:
                             _pinned.insert(0, _key)
                             _sidebar_state["updated_at"] = _now
                             _sidebar_state.setdefault("schema_version", 1)
-                            with open(_sidebar_path, "w") as _f:
-                                _json.dump(_sidebar_state, _f, ensure_ascii=False, indent=2)
-                                _f.write("\n")
+                            platform.write_sidebar_state(_agent, _sidebar_state)
                             _log(f"WS setup_title: pinned chat (cid={current_chat_id[:12]})")
 
                         # ── Notify client ──

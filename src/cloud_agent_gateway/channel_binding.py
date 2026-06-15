@@ -97,3 +97,25 @@ def load_json(path: str) -> dict:
             return json.load(f)
     except Exception:
         return {}
+
+
+# ── Platform-backed helpers (Cloud Demo single-agent) ──
+
+def read_config_cloud(agent: str = "default") -> dict:
+    from cloud_agent_gateway.platforms import platform
+    return platform.read_config(agent)
+
+
+def write_config_cloud(cfg: dict, agent: str = "default") -> None:
+    from cloud_agent_gateway.platforms import platform
+    platform.write_config(agent, cfg)
+
+
+def read_credential_cloud(channel: str, agent: str = "default") -> dict:
+    from cloud_agent_gateway.platforms import platform
+    return platform.read_credential(agent, channel)
+
+
+def write_credential_cloud(channel: str, data: dict, agent: str = "default") -> None:
+    from cloud_agent_gateway.platforms import platform
+    platform.write_credential(agent, channel, data)
