@@ -113,12 +113,126 @@ class ModelScopePlatform(PlatformProtocol):
             self._webui_agent = webui_agent or os.environ.get("WEBUI_AGENT", "neo")
 
         self._squad_roster = squad_roster or {}
+        # ── Persistent storage sync state ──
+        self._sync_ready = False          # set True after first successful clone
+        self._sync_lock = None            # threading.Lock (lazy)
+        self._sync_dirty = False          # pending changes to push
+        self._sync_thread = None          # background sync thread
         logger.info(
             "ModelScope config: webui=%s  whitelist=%s  peers=%s",
             self._webui_agent,
             self._commander_whitelist,
             list(self._squad_roster.keys()),
         )
+
+    # ── Persistent storage sync (mirrors /mnt/workspace → ModelScope dataset) ──
+
+    def _ensure_sync_ready(self) -> None:
+        """Lazily clone dataset mirror to /mnt/workspace/dataset-mirror/."""
+        if self._sync_ready:
+            return
+        import subprocess
+        mirror = "/mnt/workspace/dataset-mirror"
+        repo = "Stone2006/nanobot-multi-agent-nightly-data"
+        ms_token = os.environ.get("NANOBOT_Staging_modelscope_TOKEN", "")
+        if not ms_token:
+            try:
+                with open("/proc/1/environ", "rb") as f:
+                    for item in f.read().split(b"\0"):
+                        if b"NANOBOT_Staging_modelscope_TOKEN" in item:
+                            ms_token = item.decode("utf-8", errors="replace").split("=", 1)[1]
+                            break
+            except Exception:
+                pass
+        if not ms_token:
+            logger.warning("_ensure_sync_ready: no MS token, dataset sync disabled")
+            return
+        url = f"https://oauth2:{ms_token}@www.modelscope.cn/datasets/{repo}.git"
+        if os.path.isdir(f"{mirror}/.git"):
+            # Already cloned — fast-forward pull
+            try:
+                subprocess.run(["git", "fetch", "origin", "master"], cwd=mirror,
+                               capture_output=True, timeout=30)
+                subprocess.run(["git", "reset", "--hard", "origin/master"], cwd=mirror,
+                               capture_output=True, timeout=10)
+                logger.info("_ensure_sync_ready: pulled latest from dataset")
+            except Exception as exc:
+                logger.warning("_ensure_sync_ready: pull failed: %s", exc)
+        else:
+            import shutil
+            shutil.rmtree(mirror, ignore_errors=True)
+            try:
+                subprocess.run(["git", "clone", "--depth=1", url, mirror],
+                               check=True, capture_output=True, timeout=60)
+                logger.info("_ensure_sync_ready: cloned dataset mirror")
+            except Exception as exc:
+                logger.warning("_ensure_sync_ready: clone failed: %s", exc)
+                return
+        self._sync_ready = True
+
+    def _on_persistent_write(self) -> None:
+        """Schedule a background sync to the dataset mirror.
+
+        Multiple rapid writes collapse into a single sync via debounce.
+        """
+        import threading
+        if self._sync_lock is None:
+            self._sync_lock = threading.Lock()
+        with self._sync_lock:
+            if self._sync_thread and self._sync_thread.is_alive():
+                # A sync is already running — mark dirty so it runs again
+                self._sync_dirty = True
+                return
+            self._sync_dirty = False
+        self._sync_thread = threading.Thread(target=self._do_sync, daemon=True)
+        self._sync_thread.start()
+
+    def _do_sync(self) -> None:
+        """Mirror /mnt/workspace/instances/ into dataset clone and push."""
+        import shutil
+        import subprocess
+        import time
+
+        time.sleep(1)  # debounce window for batched writes
+        self._ensure_sync_ready()
+        if not self._sync_ready:
+            return
+
+        mirror = "/mnt/workspace/dataset-mirror"
+        src = "/mnt/workspace/instances"
+        dst = f"{mirror}/instances"
+
+        try:
+            # Mirror instances/ into dataset clone
+            if os.path.isdir(dst):
+                shutil.rmtree(dst)
+            shutil.copytree(src, dst)
+
+            # Git commit + push
+            subprocess.run(["git", "add", "-A"], cwd=mirror,
+                           capture_output=True, timeout=10)
+            r = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=mirror, timeout=5)
+            if r.returncode == 0:
+                logger.debug("_do_sync: no changes to push")
+                return
+
+            subprocess.run(["git", "commit", "-m", "sync: instances → dataset mirror"],
+                           cwd=mirror, capture_output=True, timeout=10)
+            subprocess.run(["git", "push", "origin", "HEAD:master"],
+                           cwd=mirror, capture_output=True, timeout=30)
+            logger.info("_do_sync: pushed to dataset mirror")
+
+            # Re-check dirty in case another write happened during sync
+            if self._sync_lock:
+                with self._sync_lock:
+                    if self._sync_dirty:
+                        self._sync_dirty = False
+                        # Re-run to catch subsequent writes
+                        import threading
+                        self._sync_thread = threading.Thread(target=self._do_sync, daemon=True)
+                        self._sync_thread.start()
+        except Exception as exc:
+            logger.warning("_do_sync: sync failed: %s", exc)
 
     # ═══════════════════════════════════════════════════════════════
     # OAuth
@@ -527,34 +641,41 @@ class ModelScopePlatform(PlatformProtocol):
 
         # 4. Copy template from dataset
         mount_path = "/mnt/workspace"
-        if _os.path.isdir(f"{dataset_dir}/_template"):
+        instances_src = f"{dataset_dir}/instances"
+        if _os.path.isdir(f"{instances_src}/_template"):
             _os.makedirs(f"{mount_path}/instances", exist_ok=True)
             tmpl_dst = f"{mount_path}/instances/_template"
             if _os.path.exists(tmpl_dst):
                 _shutil.rmtree(tmpl_dst)
-            _shutil.copytree(f"{dataset_dir}/_template", tmpl_dst)
+            _shutil.copytree(f"{instances_src}/_template", tmpl_dst)
             _log("🔄 [Template] 模板已从私有数据集同步")
         elif _os.path.isdir(f"{mount_path}/instances/_template"):
             _log("ℹ️ [Template] 无数据集，使用持久化存储现有模板")
         else:
             _log("⚠️ [Template] 无模板可用 — agent 将跳过")
 
-        # 5. Restore agent configs from dataset (only for missing agents)
-        #    Existing configs may contain channel bindings (QQ/WeChat/Feishu etc.)
-        #    which are NOT in the dataset snapshot — overwriting them would
-        #    silently break channel bindings after every restart.
-        for item in _os.listdir(dataset_dir):
-            item_path = _os.path.join(dataset_dir, item)
+        # 5. Deep-merge agent configs from dataset (dataset authoritative)
+        #    Merges dataset config on top of instances config — dataset wins for
+        #    structural keys, but existing channel credentials are preserved.
+        for item in _os.listdir(instances_src):
+            item_path = _os.path.join(instances_src, item)
             cfg_file = _os.path.join(item_path, "config.json")
-            if _os.path.isdir(item_path) and item not in ("_template", "neo-workspace", ".git") and _os.path.isfile(cfg_file):
+            if _os.path.isdir(item_path) and item not in ("_template", ".git") and _os.path.isfile(cfg_file):
                 dst_dir = f"{mount_path}/instances/{item}"
                 dst_cfg = f"{dst_dir}/config.json"
                 _os.makedirs(dst_dir, exist_ok=True)
-                if not _os.path.isfile(dst_cfg):
+                with open(cfg_file) as f:
+                    ds_cfg = json.load(f)
+                if _os.path.isfile(dst_cfg):
+                    with open(dst_cfg) as f:
+                        inst_cfg = json.load(f)
+                    merged = _deep_merge(inst_cfg, ds_cfg)
+                    with open(dst_cfg, "w") as f:
+                        json.dump(merged, f, indent=2, ensure_ascii=False)
+                    _log(f"🔄 [{item}] config.json merged (dataset → instances)")
+                else:
                     _shutil.copy2(cfg_file, dst_cfg)
                     _log(f"🔄 [{item}] config.json restored from dataset")
-                else:
-                    _log(f"ℹ️ [{item}] config.json already exists — skipping dataset restore")
 
         # 5b. Restore squad_config from dataset (sole source — no fallback)
         squad_cfg_ds = f"{dataset_dir}/squad_config.ms-staging.json"
@@ -567,9 +688,10 @@ class ModelScopePlatform(PlatformProtocol):
         # 6. Seed neo workspace from dataset
         neo_ws = f"{mount_path}/instances/neo/workspace"
         seed_flag = f"{neo_ws}/.legion_seeded"
-        if _os.path.isdir(f"{dataset_dir}/neo-workspace") and not _os.path.exists(seed_flag):
+        neo_ws_src = f"{instances_src}/neo/workspace"
+        if _os.path.isdir(neo_ws_src) and not _os.path.exists(seed_flag):
             _os.makedirs(neo_ws, exist_ok=True)
-            _shutil.copytree(f"{dataset_dir}/neo-workspace", neo_ws, dirs_exist_ok=True)
+            _shutil.copytree(neo_ws_src, neo_ws, dirs_exist_ok=True)
             with open(seed_flag, "w") as f:
                 f.write("seeded")
             _log("🧠 [neo] 军团知识已注入")

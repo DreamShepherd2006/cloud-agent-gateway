@@ -241,6 +241,45 @@ class CloudPlatformProtocol(Protocol):
         """Filesystem path for a named instance's persistent workspace."""
         return f"{self.data_root}/instances/{name}"
 
+    # ── Persistent storage writes ──
+
+    def write_credential(self, agent_id: str, channel: str, data: dict) -> None:
+        """Write channel credential (account.json) to persistent storage.
+
+        Implementations may override ``_on_persistent_write`` to add
+        platform-specific sync (e.g. push to dataset git repo).
+        """
+        import json
+        account_dir = f"{self.instance_path(agent_id)}/channels/{channel}"
+        os.makedirs(account_dir, exist_ok=True)
+        account_path = f"{account_dir}/account.json"
+        with open(account_path, "w") as f:
+            json.dump(data, f)
+        os.chmod(account_path, 0o600)
+        self._on_persistent_write()
+
+    def write_config(self, agent_id: str, config: dict) -> None:
+        """Write agent config.json to persistent storage.
+
+        Implementations may override ``_on_persistent_write`` to add
+        platform-specific sync (e.g. push to dataset git repo).
+        """
+        import json
+        cfg_path = f"{self.instance_path(agent_id)}/config.json"
+        with open(cfg_path, "w") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        os.chmod(cfg_path, 0o600)
+        self._on_persistent_write()
+
+    def _on_persistent_write(self) -> None:
+        """Hook: called after ``write_credential`` or ``write_config``.
+
+        Subclasses that need to sync persistent storage with an external
+        view (e.g. ModelScope dataset) override this method.
+        Default: no-op.
+        """
+        pass
+
     # ── WebSocket commander message processing (Squad Legion extension) ──
 
     def process_commander_message(
