@@ -93,12 +93,15 @@ class PlatformSpec:
     def _platform_matches(self) -> bool:
         """Check platform-level detection rules (env vars, URL patterns)."""
         # Structured env detection (with optional exact-value match)
+        # When value check fails, fall through to URL detection (not hard fail)
         if self.detect_env:
             raw = os.environ.get(self.detect_env)
             if raw is not None:
-                if self.detect_env_value:
-                    return raw == self.detect_env_value
-                return True
+                if not self.detect_env_value:
+                    return True
+                if raw == self.detect_env_value:
+                    return True
+                # Value mismatch – fall through to URL detection below
 
         # Alternative env detection
         if self.detect_env_alt and os.environ.get(self.detect_env_alt):
