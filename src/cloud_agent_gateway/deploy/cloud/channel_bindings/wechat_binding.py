@@ -104,7 +104,7 @@ def _url_to_base64_qr(url: str) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
-async def _check_status(qrcode_id: str) -> dict:
+async def _check_status(qrcode_id: str, agent: str = "default") -> dict:
     """轮询微信扫码状态。"""
     bind = _pending.get(qrcode_id)
     if not bind:
@@ -139,14 +139,14 @@ async def _check_status(qrcode_id: str) -> dict:
         # ⚠️ 必须清除旧的 context_tokens / typing_tickets / get_updates_buf，
         # 否则频道重启后用旧会话状态轮询 ilink 会立即 errcode -14（session expired）
         # 导致进入 60 分钟休眠，新 token 也无法使用。
-        existing = read_credential_cloud("weixin")
+        existing = read_credential_cloud("weixin", agent=agent)
         existing["token"] = token
         if base_url:
             existing["base_url"] = base_url
         existing["context_tokens"] = {}
         existing["typing_tickets"] = {}
         existing["get_updates_buf"] = ""
-        write_credential_cloud("weixin", existing)
+        write_credential_cloud("weixin", existing, agent=agent)
 
         return {"status": "confirmed", "message": "微信已绑定"}
 
@@ -198,7 +198,8 @@ async def _status_handler(request: Request) -> Response:
             media_type="application/json",
             status_code=400,
         )
-    data = await _check_status(qid)
+    agent = getattr(request.state, "bound_agent", "default")
+    data = await _check_status(qid, agent=agent)
     return Response(json.dumps(data, ensure_ascii=False), media_type="application/json")
 
 
