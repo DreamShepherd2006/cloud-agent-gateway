@@ -163,16 +163,7 @@ class ModelScopeDatasetSyncMixin:
         dst = f"{mirror}/instances"
 
         try:
-            gi_path = f"{mirror}/.gitignore"
-            if not os.path.isfile(gi_path):
-                with open(gi_path, "w") as f:
-                    f.write("# Runtime noise\n")
-                    f.write("instances/*/workspace/sessions/\n")
-                    f.write("instances/*/workspace/memory/\n")
-                    f.write("instances/*/workspace/logs/\n")
-                    f.write("instances/*/workspace/cron/\n")
-                    f.write("instances/*/workspace/repos/\n")
-                    f.write("instances/*/workspace/docs/\n")
+
                     f.write("__pycache__/\n")
                     f.write("*.pyc\n")
 
@@ -188,11 +179,7 @@ class ModelScopeDatasetSyncMixin:
                             os.unlink(sub_p)
             _sh.copytree(src, dst, dirs_exist_ok=True)
 
-            for agent_dir in os.listdir(dst):
-                agent_ws = os.path.join(dst, agent_dir, "workspace")
-                if os.path.isdir(agent_ws):
-                    for noise in ("sessions", "memory", "logs", "cron", "repos", "docs"):
-                        _sh.rmtree(os.path.join(agent_ws, noise), ignore_errors=True)
+
 
             _sp.run(["git", "add", "-A"], cwd=mirror,
                     capture_output=True, timeout=10)
