@@ -64,6 +64,14 @@ PLATFORM_SPECS: tuple[PlatformSpec, ...] = (
     ),
 )
 
+FALLBACK = PlatformSpec(
+    name="hf-direct",
+    display_name="HF Direct",
+    module=".hf_direct",
+    priority=99,
+    is_fallback=True,
+)
+
 platform: CloudPlatformProtocol
 
 
@@ -71,7 +79,7 @@ platform: CloudPlatformProtocol
 
 
 def _detect() -> CloudPlatformProtocol:
-    """Evaluate specs in priority order; first match wins.  Exit on mismatch."""
+    """Evaluate specs in priority order; first match wins; fallback otherwise."""
     ordered = sorted(PLATFORM_SPECS, key=lambda s: s.priority)
 
     for spec in ordered:
@@ -79,8 +87,8 @@ def _detect() -> CloudPlatformProtocol:
             _log(spec.name)
             return _load_platform(spec)
 
-    _log_fatal("无法检测运行平台。请确认正确设置了环境变量。")
-    sys.exit(1)
+    _log(FALLBACK.name)
+    return _load_platform(FALLBACK)
 
 
 def _load_platform(spec: PlatformSpec) -> CloudPlatformProtocol:
@@ -105,24 +113,6 @@ def _find_platform_class(mod):
 
 def _log(name: str) -> None:
     sys.stderr.write(f"[PLATFORM] detected → {name}\n")
-    sys.stderr.flush()
-
-
-def _log_fatal(msg: str) -> None:
-    sys.stderr.write(f"\n{'='*60}\n")
-    sys.stderr.write(f"[PLATFORM] ❌ FATAL: {msg}\n")
-    sys.stderr.write(f"可用平台检测规则:\n")
-    for spec in sorted(PLATFORM_SPECS, key=lambda s: s.priority):
-        hint = f"  · {spec.name} (priority={spec.priority})"
-        if spec.detect_env:
-            hint += f"  needs ${spec.detect_env}"
-            if spec.detect_env_value:
-                hint += f"={spec.detect_env_value}"
-        if spec.detect_url_contains:
-            hint += f"  needs URL containing '{spec.detect_url_contains}'"
-        hint += f"  → squad={spec.squad}"
-        sys.stderr.write(hint + "\n")
-    sys.stderr.write(f"{'='*60}\n\n")
     sys.stderr.flush()
 
 
