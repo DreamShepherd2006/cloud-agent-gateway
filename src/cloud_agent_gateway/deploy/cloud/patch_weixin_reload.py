@@ -142,13 +142,13 @@ def apply_patch(source: str) -> str:
         '            d = get_runtime_subdir("weixin")\n'
     )
     _replacement_state_dir = (
-        '            _account_base = os.environ.get("NANOBOT_ACCOUNT_BASE")\n'
-        "            if _account_base:\n"
-        '                d = Path(_account_base) / "weixin"\n'
-        "            elif self.config.state_dir:\n"
-        '                d = Path(self.config.state_dir).expanduser()\n'
-        "            else:\n"
-        '                d = get_runtime_subdir("weixin")\n'
+        "        _account_base = os.environ.get(\"NANOBOT_ACCOUNT_BASE\")\n"
+        "        if _account_base:\n"
+        '            d = Path(_account_base) / "weixin"\n'
+        "        elif self.config.state_dir:\n"
+        '            d = Path(self.config.state_dir).expanduser()\n'
+        "        else:\n"
+        '            d = get_runtime_subdir("weixin")\n'
     )
     source = _replace_once(source, _anchor_state_dir, _replacement_state_dir)
 
