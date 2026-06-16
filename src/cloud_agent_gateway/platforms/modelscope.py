@@ -163,10 +163,6 @@ class ModelScopeDatasetSyncMixin:
         dst = f"{mirror}/instances"
 
         try:
-
-                    f.write("__pycache__/\n")
-                    f.write("*.pyc\n")
-
             if os.path.isdir(dst):
                 if os.path.isdir(f"{dst}/workspace"):
                     _sh.rmtree(dst)
@@ -178,8 +174,6 @@ class ModelScopeDatasetSyncMixin:
                         else:
                             os.unlink(sub_p)
             _sh.copytree(src, dst, dirs_exist_ok=True)
-
-
 
             _sp.run(["git", "add", "-A"], cwd=mirror,
                     capture_output=True, timeout=10)
