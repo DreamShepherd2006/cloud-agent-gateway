@@ -131,10 +131,10 @@ def apply_patch(source: str) -> str:
     )
     source = _replace_once(source, _anchor_start, _replacement_start)
 
-    # ── Patch 5: Use NANOBOT_ACCOUNT_BASE in _get_state_dir ────────
-    # When NANOBOT_ACCOUNT_BASE is set (Staging multi-agent), use
-    # it as the base path for account.json so it matches what
-    # gatekeeper's PersistentStorageProtocol writes.
+    # ── Patch 5: NANOBOT_ACCOUNT_BASE takes priority over state_dir ──
+    # NANOBOT_ACCOUNT_BASE (set by entrypoint.sh / launch.sh) wins to
+    # ensure nanobot reads credentials from PersistentStorageProtocol path.
+    # config.json's state_dir acts as fallback when the env var is unset.
     _anchor_state_dir = (
         "        if self.config.state_dir:\n"
         '            d = Path(self.config.state_dir).expanduser()\n'
@@ -142,12 +142,11 @@ def apply_patch(source: str) -> str:
         '            d = get_runtime_subdir("weixin")\n'
     )
     _replacement_state_dir = (
-        "        if self.config.state_dir:\n"
-        '            d = Path(self.config.state_dir).expanduser()\n'
-        "        else:\n"
         '            _account_base = os.environ.get("NANOBOT_ACCOUNT_BASE")\n'
         "            if _account_base:\n"
         '                d = Path(_account_base) / "weixin"\n'
+        "            elif self.config.state_dir:\n"
+        '                d = Path(self.config.state_dir).expanduser()\n'
         "            else:\n"
         '                d = get_runtime_subdir("weixin")\n'
     )
