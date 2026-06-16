@@ -183,6 +183,8 @@ class ModelScopeDatasetSyncMixin:
                             os.unlink(sub_p)
             _sh.copytree(src, dst, dirs_exist_ok=True)
             _sh.rmtree(f"{dst}/.git", ignore_errors=True)  # instances is a git repo → would become submodule
+            if os.path.isfile(f"{dst}/.gitignore"):
+                os.unlink(f"{dst}/.gitignore")  # nanobot git store gitignore blocks sync
 
             _sp.run(["git", "add", "-A"], cwd=mirror,
                     capture_output=True, timeout=10)
