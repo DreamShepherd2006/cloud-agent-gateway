@@ -41,7 +41,10 @@ _pending: dict[str, dict] = {}
 
 def _weixin_state_dir() -> str:
     d = os.path.join(nanobot_home(), "weixin")
-    os.makedirs(d, exist_ok=True)
+    # Follow symlink to real path (d may be a symlink to a non-existent
+    # target directory, which os.makedirs cannot handle with exist_ok=True).
+    real = os.path.realpath(d)
+    os.makedirs(real, exist_ok=True)
     return d
 
 
