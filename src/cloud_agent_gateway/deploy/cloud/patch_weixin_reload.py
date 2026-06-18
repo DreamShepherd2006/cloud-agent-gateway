@@ -241,6 +241,43 @@ def apply_patch(source: str) -> str:
     )
     source = _replace_once(source, _anchor_pause_remaining, _replacement_pause_remaining)
 
+    # ── Patch 8: Catch BaseException to log silent task killers ──
+    # CancelledError (asyncio task cancellation) and other BaseException
+    # subclasses bypass `except Exception`, killing the poll loop silently.
+    # Insert `except BaseException` AFTER the existing `except Exception` block.
+    _anchor_base_exc = (
+        "            except Exception:\n"
+        "                if not self._running:\n"
+        "                    break\n"
+        '                self.logger.exception("WeChat poll loop error")\n'
+        "                consecutive_failures += 1\n"
+        "                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:\n"
+        "                    consecutive_failures = 0\n"
+        "                    await asyncio.sleep(BACKOFF_DELAY_S)\n"
+        "                else:\n"
+        "                    await asyncio.sleep(RETRY_DELAY_S)\n"
+    )
+    _replacement_base_exc = (
+        "            except Exception:\n"
+        "                if not self._running:\n"
+        "                    break\n"
+        '                self.logger.exception("WeChat poll loop error")\n'
+        "                consecutive_failures += 1\n"
+        "                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:\n"
+        "                    consecutive_failures = 0\n"
+        "                    await asyncio.sleep(BACKOFF_DELAY_S)\n"
+        "                else:\n"
+        "                    await asyncio.sleep(RETRY_DELAY_S)\n"
+        "            except BaseException:\n"
+        "                if not self._running:\n"
+        "                    break\n"
+        '                self.logger.warning(\n'
+        '                    f"WeChat poll loop killed ({type(e).__name__}), exiting"\n'
+        "                )\n"
+        "                break\n"
+    )
+    source = _replace_once(source, _anchor_base_exc, _replacement_base_exc)
+
     return source
 
 
