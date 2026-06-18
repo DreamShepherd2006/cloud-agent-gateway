@@ -152,6 +152,34 @@ def apply_patch(source: str) -> str:
     )
     source = _replace_once(source, _anchor_state_dir, _replacement_state_dir)
 
+    # ── Patch 6: Auto-reload on account.json mtime change ─────────
+    # When gatekeeper writes a new account.json after web binding, the
+    # channel's long-poll loop detects the mtime change and reloads state
+    # without needing a restart.
+    _anchor_mtime = (
+        '        self.logger.info("channel starting with long-poll...")\n'
+        '\n'
+        '        consecutive_failures = 0\n'
+        '        while self._running:\n'
+    )
+    _replacement_mtime = (
+        '        self.logger.info("channel starting with long-poll...")\n'
+        '\n'
+        '        _state_file = self._get_state_dir() / "account.json"\n'
+        '        _account_mtime = _state_file.stat().st_mtime if _state_file.exists() else 0\n'
+        '\n'
+        '        consecutive_failures = 0\n'
+        '        while self._running:\n'
+        '            # ── cloud-agent-gateway: detect account.json update for hot-reload ──\n'
+        '            if _state_file.exists():\n'
+        '                _cur_mtime = _state_file.stat().st_mtime\n'
+        '                if _cur_mtime != _account_mtime:\n'
+        '                    self.logger.info("account.json changed, reloading state...")\n'
+        '                    self._load_state()\n'
+        '                    _account_mtime = _cur_mtime\n'
+    )
+    source = _replace_once(source, _anchor_mtime, _replacement_mtime)
+
     return source
 
 
@@ -164,6 +192,7 @@ def verify_patch(source: str) -> None:
         "(httpx.Timeout assignment removed",
         'os.environ.get("NANOBOT_ACCOUNT_BASE")',  # _get_state_dir patch
         "self._load_state()",  # after asyncio.sleep
+        "_account_mtime = _state_file.stat().st_mtime",  # Patch 6: mtime reload
     ]
     for m in markers:
         if m not in source:
