@@ -71,12 +71,21 @@ def apply_patch(source: str) -> str:
     )
 
     # ── Patch 2: Reload state after pause in _poll_once ──────────
-    # After sleep(remaining), reload state to clear stale tokens
+    # Replace single asyncio.sleep(remaining) with chunked sleep + token
+    # change detection, so web bindings take effect within 5s during pause.
     source = _replace_once(
         source,
+        "        remaining = self._session_pause_remaining_s()\n"
+        "        if remaining > 0:\n"
         "            await asyncio.sleep(remaining)\n"
         "            return",
-        "            await asyncio.sleep(remaining)\n"
+        "        remaining = self._session_pause_remaining_s()\n"
+        "        if remaining > 0:\n"
+        "            # Chunked sleep to detect token changes from web bind\n"
+        "            while remaining > 0:\n"
+        "                _chunk = min(5, remaining)\n"
+        "                await asyncio.sleep(_chunk)\n"
+        "                remaining = self._session_pause_remaining_s()\n"
         "            self._load_state()\n"
         "            return",
     )
