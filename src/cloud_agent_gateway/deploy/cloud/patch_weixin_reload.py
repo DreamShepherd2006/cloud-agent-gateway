@@ -185,12 +185,52 @@ def apply_patch(source: str) -> str:
         '                        if _token and _token != _last_token:\n'
         '                            self.logger.info("account.json token changed, reloading state...")\n'
         '                            self._load_state()\n'
+        '                            self._session_pause_until = 0.0\n'
         '                            _last_token = self._token\n'
         '                    except Exception:\n'
         '                        pass\n'
         '                    _account_mtime = _cur_mtime\n'
     )
     source = _replace_once(source, _anchor_mtime, _replacement_mtime)
+
+    # ── Patch 7: Detect token changes in _session_pause_remaining_s ──
+    # When gatekeeper writes a new account.json (web bind) while the channel
+    # is in a long pause (e.g. session expired), this check runs on every
+    # poll cycle entry and clears the pause immediately.
+    _anchor_pause_remaining = (
+        "    def _session_pause_remaining_s(self) -> int:\n"
+        "        remaining = int(self._session_pause_until - time.time())\n"
+        "        if remaining <= 0:\n"
+        "            self._session_pause_until = 0.0\n"
+        "            return 0\n"
+        "        return remaining\n"
+    )
+    _replacement_pause_remaining = (
+        "    def _session_pause_remaining_s(self) -> int:\n"
+        "        # cloud-agent-gateway: detect token changes from web bind\n"
+        "        try:\n"
+        '            _sf = self._get_state_dir() / "account.json"\n'
+        "            if _sf.exists():\n"
+        "                _mt = _sf.stat().st_mtime\n"
+        "                _last = getattr(self, \"_cag_account_mtime\", 0)\n"
+        "                if _mt != _last:\n"
+        "                    self._cag_account_mtime = _mt\n"
+        "                    _d = json.loads(_sf.read_text())\n"
+        '                    _tk = _d.get("token", "")\n'
+        "                    if _tk and _tk != self._token:\n"
+        '                        self.logger.info("Token changed, clearing session pause")\n'
+        "                        self._load_state()\n"
+        "                        self._session_pause_until = 0.0\n"
+        "                        return 0\n"
+        "        except Exception:\n"
+        "            pass\n"
+        "        remaining = int(self._session_pause_until - time.time())\n"
+        "        if remaining <= 0:\n"
+        "            self._session_pause_until = 0.0\n"
+        "            return 0\n"
+        "        return remaining\n"
+    )
+    source = _replace_once(source, _anchor_pause_remaining, _replacement_pause_remaining)
 
     return source
 
@@ -205,6 +245,7 @@ def verify_patch(source: str) -> None:
         'os.environ.get("NANOBOT_ACCOUNT_BASE")',  # _get_state_dir patch
         "self._load_state()",  # after asyncio.sleep
         "_last_token = self._token",  # Patch 6: token-change reload
+        "self._cag_account_mtime",  # Patch 7: pause-remaining token check
     ]
     for m in markers:
         if m not in source:
