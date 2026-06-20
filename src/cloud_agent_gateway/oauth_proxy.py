@@ -178,6 +178,7 @@ LOGIN_PAGE = """\
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>登录</title>
+<!-- CAG: workspace_scope fix v2 — real directory at data_root/BINDING_TITLE -->
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { display:flex; align-items:center; justify-content:center; min-height:100vh;
@@ -408,11 +409,18 @@ def _ensure_binding_session():
     _cid = str(_uuid.uuid4())
     _key = f"websocket:{_cid}"
 
+    # Ensure the project_path directory exists so validate_workspace_scope_payload()
+    # does not reject it (nanobot requires project_path to be an existing directory).
+    import os as _os
+    _project_dir = f"{platform.data_root}/{BINDING_TITLE}"
+    _os.makedirs(_project_dir, exist_ok=True)
+
     platform.write_session(_agent, _cid, [
         {
             "_type": "metadata", "key": _key,
             "created_at": _now, "updated_at": _now,
-            "metadata": {"title": BINDING_TITLE, "webui": True},
+            "metadata": {"title": BINDING_TITLE, "webui": True,
+                        "workspace_scope": {"project_path": _project_dir}},
             "last_consolidated": 0,
         },
         {
