@@ -5,4 +5,4 @@ WebSocket pass-through with identity injection, and cloud platform
 auto-detection (HF Spaces, ModelScope, etc.).
 """
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"
