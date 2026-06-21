@@ -219,9 +219,13 @@ def apply_patch(source: str) -> str:
         "        # cloud-agent-gateway: detect external changes to account.json\n"
         "        # (web bind clears get_updates_buf/context_tokens/typing_tickets)\n"
         "        _rem = int(self._session_pause_until - time.time())\n"
-        '        print(f"[CAG-P7] heartbeat pause_rem={max(_rem,0)}s", flush=True)\n'
+        '        _sf = self._get_state_dir() / "account.json"\n'
+        '        _path = str(_sf)\n'
+        '        if not hasattr(self, "_cag_path_printed"):\n'
+        '            self._cag_path_printed = True\n'
+        '            print(f"[CAG-P7] watching {_path} NANOBOT_ACCOUNT_BASE={os.environ.get(\'NANOBOT_ACCOUNT_BASE\', \'(unset)\')}", flush=True)\n'
+        '        print(f"[CAG-P7] heartbeat pause_rem={max(_rem,0)}s path={_path}", flush=True)\n'
         "        try:\n"
-        '            _sf = self._get_state_dir() / "account.json"\n'
         "            if _sf.exists():\n"
         "                _mt = _sf.stat().st_mtime\n"
         "                _last = getattr(self, \"_cag_account_mtime\", 0)\n"
