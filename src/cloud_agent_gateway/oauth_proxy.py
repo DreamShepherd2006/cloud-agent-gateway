@@ -178,7 +178,7 @@ LOGIN_PAGE = """\
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>登录</title>
-<!-- CAG: workspace_scope fix v2 — real directory at data_root/BINDING_TITLE -->
+<!-- CAG: workspace_scope fix v2 — real dir at data_root/BINDING_TITLE, renamed to 系统配置 -->
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { display:flex; align-items:center; justify-content:center; min-height:100vh;
@@ -342,7 +342,7 @@ async def login_start(request: Request) -> RedirectResponse:
     return RedirectResponse(auth_url, status_code=302)
 
 
-BINDING_TITLE = "社交通道配置提示"
+BINDING_TITLE = "系统配置"
 
 _rows = "\n".join(
     f"| {b.icon} {b.display} | [绑定{b.display}](/bind/{b.name}) |"
@@ -858,6 +858,34 @@ async def ws_proxy(websocket: WebSocket) -> None:
                                 data = json.dumps(envelope)
                                 _log(f"WS → neo: type={envelope.get('type','?')} cid={envelope.get('chat_id','?')[:12]}")
 
+                                # Block new chat creation in system config project:
+                                # only pre-defined chats (binding sessions) allowed.
+                                if envelope.get("type") == "new_chat":
+                                    _ws = envelope.get("workspace_scope", {}) or {}
+                                    _pp = (_ws.get("project_path") or "").rstrip("/")
+                                    if _pp.endswith("/" + BINDING_TITLE):
+                                        await websocket.send_text(json.dumps({
+                                            "event": "error",
+                                            "detail": "workspace_scope_rejected",
+                                            "reason": "系统配置项目不允许创建新对话",
+                                            "chat_id": envelope.get("chat_id", ""),
+                                        }))
+                                        _log(f"WS → blocked new_chat in '{BINDING_TITLE}' project")
+                                        continue
+                                # Block moving existing chats into system config project
+                                if envelope.get("type") == "set_workspace_scope":
+                                    _ws = envelope.get("workspace_scope", {}) or {}
+                                    _pp = (_ws.get("project_path") or "").rstrip("/")
+                                    if _pp.endswith("/" + BINDING_TITLE):
+                                        await websocket.send_text(json.dumps({
+                                            "event": "error",
+                                            "detail": "workspace_scope_rejected",
+                                            "reason": "不能将会话移到系统配置项目",
+                                            "chat_id": envelope.get("chat_id", ""),
+                                        }))
+                                        _log(f"WS → blocked set_workspace_scope in '{BINDING_TITLE}' project")
+                                        continue
+
                                 # Block messages to binding chat: don't forward to Neo.
                                 _binding_cid = _get_binding_chat_id()
                                 if _binding_cid and envelope.get("chat_id") == _binding_cid:
@@ -943,7 +971,7 @@ async def ws_proxy(websocket: WebSocket) -> None:
                         break
 
             async def setup_title():
-                """Ensure a '社交通道配置提示' chat exists, is correctly titled, and pinned."""
+                """Ensure a '系统配置' chat exists, is correctly titled, and pinned."""
                 nonlocal current_chat_id
                 _log(f"WS setup_title: started (username={username})")
                 try:
