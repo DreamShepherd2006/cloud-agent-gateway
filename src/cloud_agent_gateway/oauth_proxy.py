@@ -343,6 +343,7 @@ async def login_start(request: Request) -> RedirectResponse:
 
 
 BINDING_TITLE = "系统配置"
+BINDING_CHAT_TITLE = "社交通道配置指南"
 
 _rows = "\n".join(
     f"| {b.icon} {b.display} | [绑定{b.display}](/bind/{b.name}) |"
@@ -370,7 +371,7 @@ def _get_binding_chat_id() -> str | None:
             continue
         _cid = _pk.split(":", 1)[1]
         _lines = platform.read_session(_agent, _cid)
-        if _lines and _lines[0].get("metadata", {}).get("title") == BINDING_TITLE:
+        if _lines and _lines[0].get("metadata", {}).get("title") == BINDING_CHAT_TITLE:
             return _cid
     return None
 
@@ -396,7 +397,7 @@ def _ensure_binding_session():
             continue
         _cid = _pk.split(":", 1)[1]
         _lines = platform.read_session(_agent, _cid)
-        if _lines and _lines[0].get("metadata", {}).get("title") == BINDING_TITLE:
+        if _lines and _lines[0].get("metadata", {}).get("title") == BINDING_CHAT_TITLE:
             platform.delete_session(_agent, _cid)
             _state["pinned_keys"].remove(_pk)
             _any_deleted = True
@@ -419,7 +420,7 @@ def _ensure_binding_session():
         {
             "_type": "metadata", "key": _key,
             "created_at": _now, "updated_at": _now,
-            "metadata": {"title": BINDING_TITLE, "webui": True,
+            "metadata": {"title": BINDING_CHAT_TITLE, "webui": True,
                         "workspace_scope": {"project_path": _project_dir}},
             "last_consolidated": 0,
         },
@@ -988,7 +989,7 @@ async def ws_proxy(websocket: WebSocket) -> None:
                             continue
                         _cid = _pk.split(":", 1)[1]
                         _lines = platform.read_session(_agent, _cid)
-                        if _lines and _lines[0].get("metadata", {}).get("title") == BINDING_TITLE:
+                        if _lines and _lines[0].get("metadata", {}).get("title") == BINDING_CHAT_TITLE:
                             _pinned_cid = _cid
                             break
 
@@ -1035,7 +1036,7 @@ async def ws_proxy(websocket: WebSocket) -> None:
                         _existing = platform.read_session(_agent, current_chat_id)
                         if _existing:
                             # Update: set title + replace first user message
-                            _existing[0].setdefault("metadata", {})["title"] = BINDING_TITLE
+                            _existing[0].setdefault("metadata", {})["title"] = BINDING_CHAT_TITLE
                             _found = False
                             for _entry in _existing[1:]:
                                 if _entry.get("role") == "user":
@@ -1056,7 +1057,7 @@ async def ws_proxy(websocket: WebSocket) -> None:
                                 {
                                     "_type": "metadata", "key": _key,
                                     "created_at": _now, "updated_at": _now,
-                                    "metadata": {"title": BINDING_TITLE, "webui": True},
+                                    "metadata": {"title": BINDING_CHAT_TITLE, "webui": True},
                                     "last_consolidated": 0,
                                 },
                                 {
