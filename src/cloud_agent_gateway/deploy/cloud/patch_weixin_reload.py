@@ -294,6 +294,51 @@ def apply_patch(source: str) -> str:
     )
     source = _replace_once(source, _anchor_base_exc, _replacement_base_exc)
 
+    # ── Patch 9: _save_state() external change guard ──
+    # During active polling, _save_state() writes every ~5s and can overwrite
+    # binding writes (write_credential). Check mtime before writing; if token
+    # changed externally, reload from disk instead of overwriting.
+    _anchor_save_state = (
+        "    def _save_state(self) -> None:\n"
+        '        state_file = self._get_state_dir() / "account.json"\n'
+        "        with suppress(Exception):\n"
+        "            data = {\n"
+        '                "token": self._token,\n'
+        '                "get_updates_buf": self._get_updates_buf,\n'
+        '                "context_tokens": self._context_tokens,\n'
+        '                "typing_tickets": self._typing_tickets,\n'
+        '                "base_url": self.config.base_url,\n'
+        "            }\n"
+        "            state_file.write_text(json.dumps(data, ensure_ascii=False))\n"
+    )
+    _replacement_save_state = (
+        "    def _save_state(self) -> None:\n"
+        '        _sf = self._get_state_dir() / "account.json"\n'
+        '        # cloud-agent-gateway Patch 9: detect binding write before overwriting\n'
+        "        if hasattr(self, '_cag_last_save_mtime') and _sf.exists():\n"
+        "            _disk_mtime = _sf.stat().st_mtime\n"
+        "            if _disk_mtime != self._cag_last_save_mtime:\n"
+        "                with suppress(Exception):\n"
+        "                    _disk = json.loads(_sf.read_text())\n"
+        '                    _disk_tk = _disk.get("token", "")\n'
+        "                    if _disk_tk and _disk_tk != self._token:\n"
+        '                        self.logger.info("account.json externally modified, reloading (P9)")\n'
+        "                        self._load_state()\n"
+        "                        self._cag_last_save_mtime = _sf.stat().st_mtime\n"
+        "                        return\n"
+        "        with suppress(Exception):\n"
+        "            data = {\n"
+        '                "token": self._token,\n'
+        '                "get_updates_buf": self._get_updates_buf,\n'
+        '                "context_tokens": self._context_tokens,\n'
+        '                "typing_tickets": self._typing_tickets,\n'
+        '                "base_url": self.config.base_url,\n'
+        "            }\n"
+        "            _sf.write_text(json.dumps(data, ensure_ascii=False))\n"
+        "            self._cag_last_save_mtime = _sf.stat().st_mtime\n"
+    )
+    source = _replace_once(source, _anchor_save_state, _replacement_save_state)
+
     return source
 
 
@@ -341,48 +386,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-    # ── Patch 9: _save_state() external change guard ──
-    # During active polling, _save_state() writes every ~5s and can overwrite
-    # binding writes (write_credential). Check mtime before writing; if token
-    # changed externally, reload from disk instead of overwriting.
-    _anchor_save_state = (
-        "    def _save_state(self) -> None:\n"
-        '        state_file = self._get_state_dir() / "account.json"\n'
-        "        with suppress(Exception):\n"
-        "            data = {\n"
-        '                "token": self._token,\n'
-        '                "get_updates_buf": self._get_updates_buf,\n'
-        '                "context_tokens": self._context_tokens,\n'
-        '                "typing_tickets": self._typing_tickets,\n'
-        '                "base_url": self.config.base_url,\n'
-        "            }\n"
-        "            state_file.write_text(json.dumps(data, ensure_ascii=False))\n"
-    )
-    _replacement_save_state = (
-        "    def _save_state(self) -> None:\n"
-        '        _sf = self._get_state_dir() / "account.json"\n'
-        '        # cloud-agent-gateway Patch 9: detect binding write before overwriting\n'
-        "        if hasattr(self, '_cag_last_save_mtime') and _sf.exists():\n"
-        "            _disk_mtime = _sf.stat().st_mtime\n"
-        "            if _disk_mtime != self._cag_last_save_mtime:\n"
-        "                with suppress(Exception):\n"
-        "                    _disk = json.loads(_sf.read_text())\n"
-        '                    _disk_tk = _disk.get("token", "")\n'
-        "                    if _disk_tk and _disk_tk != self._token:\n"
-        '                        self.logger.info("account.json externally modified, reloading (P9)")\n'
-        "                        self._load_state()\n"
-        "                        self._cag_last_save_mtime = _sf.stat().st_mtime\n"
-        "                        return\n"
-        "        with suppress(Exception):\n"
-        "            data = {\n"
-        '                "token": self._token,\n'
-        '                "get_updates_buf": self._get_updates_buf,\n'
-        '                "context_tokens": self._context_tokens,\n'
-        '                "typing_tickets": self._typing_tickets,\n'
-        '                "base_url": self.config.base_url,\n'
-        "            }\n"
-        "            _sf.write_text(json.dumps(data, ensure_ascii=False))\n"
-        "            self._cag_last_save_mtime = _sf.stat().st_mtime\n"
-    )
-    source = _replace_once(source, _anchor_save_state, _replacement_save_state)
