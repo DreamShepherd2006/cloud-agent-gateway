@@ -84,7 +84,7 @@ def _build_config(form: dict[str, str]) -> dict:
     return {
         "gateway": {
             "host": "0.0.0.0",
-            "port": 7860,
+            "port": 17860,
         },
         "agents": {
             "defaults": {
