@@ -55,16 +55,17 @@ def ensure_dirs(data_root: str, home: str) -> str:
     return inst
 
 
-def export_oauth(config_file: str) -> None:
-    """Read oauth section from config.json and export as env vars."""
+def export_oauth(data_root: str) -> None:
+    """Read oauth.json from persistent volume and export as env vars."""
+    oauth_file = os.path.join(data_root, "oauth.json")
     try:
-        with open(config_file) as f:
-            cfg = json.load(f)
-    except Exception as e:
-        print(f"    OAuth 读取失败: {e}")
+        with open(oauth_file) as f:
+            oauth = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        nope = "    ℹ️  OAuth not configured (skip)"
+        print(nope)
         return
 
-    oauth = cfg.get("oauth", {})
     cid = oauth.get("client_id", "")
     secret = oauth.get("client_secret", "")
     if cid and secret:
@@ -121,7 +122,7 @@ def main() -> None:
 
     # ── OAuth ──
     print("── OAuth ──")
-    export_oauth(config_file)
+    export_oauth(data_root)
 
     # ── Storage ──
     print("── Storage ──")

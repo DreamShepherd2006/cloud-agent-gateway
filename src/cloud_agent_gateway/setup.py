@@ -143,16 +143,14 @@ def _build_config(form: dict[str, str]) -> dict:
         },
     }
 
-    # OAuth 配置（可选；Phase 2 启动时 CMD 导出为环境变量）
+    # OAuth 配置写入单独文件，避免 nanobot pydantic 拒绝 extra fields
     client_id = form.get("oauth_client_id", "").strip()
     client_secret = form.get("oauth_client_secret", "").strip()
+    oauth_cfg = {}
     if client_id and client_secret:
-        config["oauth"] = {
-            "client_id": client_id,
-            "client_secret": client_secret,
-        }
+        oauth_cfg = {"client_id": client_id, "client_secret": client_secret}
 
-    return config
+    return config, oauth_cfg
 
 
 # ── HTML ─────────────────────────────────────────────────────────────
@@ -386,11 +384,15 @@ async def post_setup(request: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": f"未知服务商: {form['provider']}"}, status_code=400)
 
     try:
-        config = _build_config(form)
+        config, oauth_cfg = _build_config(form)
         os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
         os.makedirs(DATA_ROOT, exist_ok=True)
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
+        if oauth_cfg:
+            oauth_path = os.path.join(DATA_ROOT, "oauth.json")
+            with open(oauth_path, "w", encoding="utf-8") as f:
+                json.dump(oauth_cfg, f)
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
