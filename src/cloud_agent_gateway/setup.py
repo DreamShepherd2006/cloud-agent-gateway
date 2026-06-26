@@ -240,8 +240,15 @@ SETUP_HTML = """\
         <p class="step-num">② 创建 OAuth 应用并粘贴回调地址</p>
         <p class="tip" id="oauth-link-ms">
           👉 打开
-          <a href="https://www.modelscope.cn/my/oauth/apps" target="_blank">ModelScope OAuth 应用管理</a>
-          → 新建应用 → 粘贴上面的回调地址 → 获取 App ID / App Secret
+          <a href="https://modelscope.cn/my/createApplications?status=create" target="_blank">ModelScope 创建 OAuth 应用</a>
+          ，填写：
+          <ul style="font-size:0.85rem;margin:4px 0 0 1em;padding:0">
+            <li><b>应用名称</b>：任意（如 我的AI助手）</li>
+            <li><b>应用官网</b>：填你的空间地址</li>
+            <li><b>授权范围</b>：勾选 <code>profile</code>（用户公开信息）+ <code>read-repos</code>（读取个人仓库）</li>
+            <li><b>重定向URL</b>：粘贴上面的回调地址</li>
+          </ul>
+          → 创建后获取 App ID / App Secret，填回下方
         </p>
         <p class="tip" id="oauth-link-hf" style="display:none">
           👉 打开
