@@ -69,8 +69,8 @@ def export_oauth(data_root: str) -> None:
     cid = oauth.get("client_id", "")
     secret = oauth.get("client_secret", "")
     if cid and secret:
-        os.environ["OIDC_CLIENT_ID"] = cid
-        os.environ["OIDC_CLIENT_SECRET"] = secret
+        os.environ["OAUTH_CLIENT_ID"] = cid
+        os.environ["OAUTH_CLIENT_SECRET"] = secret
         print(f"    ✅ OAuth configured (client_id={cid})")
     else:
         print(f"    ℹ️  OAuth not configured (skip)")
