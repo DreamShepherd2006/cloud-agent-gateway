@@ -81,7 +81,7 @@ def _build_config(form: dict[str, str]) -> dict:
     api_base = form.get("api_base", "").strip() or presets["api_base"]
     model = form.get("model", "").strip() or presets["default_model"]
 
-    return {
+    config: dict[str, object] = {
         "gateway": {
             "host": "0.0.0.0",
             "port": 17860,
@@ -141,6 +141,17 @@ def _build_config(form: dict[str, str]) -> dict:
         },
     }
 
+    # OAuth 配置（可选；Phase 2 启动时 CMD 导出为环境变量）
+    client_id = form.get("oauth_client_id", "").strip()
+    client_secret = form.get("oauth_client_secret", "").strip()
+    if client_id and client_secret:
+        config["oauth"] = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }
+
+    return config
+
 
 # ── HTML ─────────────────────────────────────────────────────────────
 SETUP_HTML = """\
@@ -167,8 +178,16 @@ SETUP_HTML = """\
            transition:background .15s }
   button:hover { background:#357abd }
   .tip { font-size:12px; color:#999; margin-top:6px }
-  .hidden { display:none }
+   .hidden { display:none }
+  .divider { border:none; border-top:1px solid #eee; margin:28px 0 20px }
+  .section-title { font-size:16px; margin-bottom:8px }
+  .step-num { font-size:13px; font-weight:600; color:#555; margin-top:18px; margin-bottom:6px }
+  .copy-box { display:flex; gap:8px; align-items:stretch }
+  .copy-box code { flex:1; padding:10px 12px; background:#f0f5ff; border:1px solid #c5d9f6;
+                   border-radius:8px; font-size:13px; word-break:break-all; font-family:monospace; overflow-wrap:anywhere }
+  .copy-box button { width:auto; margin:0; padding:8px 14px; font-size:13px; white-space:nowrap }
   #submit-msg { margin-top:12px; font-size:14px; color:#4a90d9; text-align:center }
+  #submit-msg a { color:#4a90d9 }
 </style>
 </head>
 <body>
@@ -200,13 +219,50 @@ SETUP_HTML = """\
                placeholder="https://api.example.com/v1">
       </div>
 
-      <label for="model">模型</label>
+       <label for="model">模型</label>
       <input id="model" name="model" type="text"
              placeholder="留空使用默认模型" list="model-list">
       <datalist id="model-list"></datalist>
       <p class="tip">可输入自定义模型名，或从列表中选择。</p>
 
-      <button type="submit">开始使用 →</button>
+      <hr class="divider">
+
+      <h2 class="section-title">🔐 OAuth 登录（可选）</h2>
+      <p class="sub">配置后可通过 ModelScope / HuggingFace 账号登录，无需重复填 API Key。</p>
+
+      <div id="oauth-section">
+        <p class="step-num">① 复制你的空间回调地址</p>
+        <div class="copy-box">
+          <code id="redirect-url">检测中...</code>
+          <button type="button" id="copy-btn" onclick="copyRedirect()">📋 复制</button>
+        </div>
+
+        <p class="step-num">② 创建 OAuth 应用并粘贴回调地址</p>
+        <p class="tip" id="oauth-link-ms">
+          👉 打开
+          <a href="https://www.modelscope.cn/my/oauth/apps" target="_blank">ModelScope OAuth 应用管理</a>
+          → 新建应用 → 粘贴上面的回调地址 → 获取 App ID / App Secret
+        </p>
+        <p class="tip" id="oauth-link-hf" style="display:none">
+          👉 打开
+          <a href="https://huggingface.co/settings/applications/new" target="_blank">HuggingFace OAuth 应用</a>
+          → 粘贴上面的回调地址 → 获取 Client ID / Client Secret
+        </p>
+
+        <p class="step-num">③ 填回下方</p>
+        <label for="oauth_client_id">App ID / Client ID</label>
+        <input id="oauth_client_id" name="oauth_client_id" type="text"
+               placeholder="留空可跳过，后续再配">
+
+        <label for="oauth_client_secret">App Secret / Client Secret</label>
+        <input id="oauth_client_secret" name="oauth_client_secret" type="password"
+               autocomplete="off"
+               placeholder="留空可跳过，后续再配">
+      </div>
+
+      <hr class="divider">
+
+      <button type="submit">保存配置 →</button>
       <div id="submit-msg"></div>
     </form>
   </div>
@@ -242,20 +298,46 @@ function updateUI() {
 sel.addEventListener('change', updateUI);
 updateUI();
 
+// -- OAuth: 自动检测平台并生成回调 URL --
+var redirectEl = document.getElementById('redirect-url');
+var redirectUrl = window.location.origin + '/auth/callback';
+redirectEl.textContent = redirectUrl;
+
+// 平台检测：有 ms.show 域名 → ModelScope，否则 HuggingFace
+var host = window.location.host;
+var isMS = host.indexOf('.ms.show') !== -1;
+document.getElementById('oauth-link-ms').style.display = isMS ? '' : 'none';
+document.getElementById('oauth-link-hf').style.display = isMS ? 'none' : '';
+
+function copyRedirect() {
+  navigator.clipboard.writeText(redirectUrl).then(function(){
+    var btn = document.getElementById('copy-btn');
+    btn.textContent = '✅ 已复制';
+    setTimeout(function(){ btn.textContent = '📋 复制'; }, 2000);
+  }).catch(function(){
+    // fallback for older browsers or no clipboard
+    prompt('按 Ctrl+C 复制:', redirectUrl);
+  });
+}
+
 // form submit
 var fm = document.getElementById('setup-form');
 var msg = document.getElementById('submit-msg');
 fm.addEventListener('submit', async function(e){
   e.preventDefault();
-  msg.textContent = '正在保存配置...';
+  msg.innerHTML = '正在保存配置...';
   var fd = new FormData(fm);
   var payload = {}; fd.forEach(function(v,k){ payload[k]=v; });
   var resp = await fetch('/', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
   var data = await resp.json();
   if(data.ok) {
-    msg.textContent = '\u2705 配置已保存！空间即将重启，稍后刷新页面即可使用。';
+    msg.innerHTML = '\u2705 配置已保存！<br><br>'
+      + '<b>下一步：重启空间</b><br>'
+      + 'ModelScope：在空间页面点「停止」→ 再点「启动」<br>'
+      + 'HuggingFace：Factory Rebuild<br><br>'
+      + '重启后访问空间 → OAuth 登录 → 即可使用 AI 助手。';
   } else {
-    msg.textContent = '\u274c 保存失败: '+ (data.error||'未知错误');
+    msg.innerHTML = '\u274c 保存失败: '+ (data.error||'未知错误');
   }
 });
 </script>
