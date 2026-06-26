@@ -300,12 +300,12 @@ updateUI();
 
 // -- OAuth: 自动检测平台并生成回调 URL --
 var redirectEl = document.getElementById('redirect-url');
-var redirectUrl = window.location.origin + '/auth/callback';
+var host = window.location.host;
+var isMS = host.indexOf('.ms.show') !== -1;
+var redirectUrl = window.location.origin + (isMS ? '/api/auth/callback' : '/auth/callback');
 redirectEl.textContent = redirectUrl;
 
 // 平台检测：有 ms.show 域名 → ModelScope，否则 HuggingFace
-var host = window.location.host;
-var isMS = host.indexOf('.ms.show') !== -1;
 document.getElementById('oauth-link-ms').style.display = isMS ? '' : 'none';
 document.getElementById('oauth-link-hf').style.display = isMS ? 'none' : '';
 
