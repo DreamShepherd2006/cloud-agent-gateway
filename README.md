@@ -15,24 +15,23 @@ pinned: false
 
 ## 📦 需要上传的文件
 
-| 文件 | 作用 |
-|------|------|
-| **`Dockerfile`** | 构建容器，自动安装 CAG 框架 + nanobot |
-| **`README.md`** | HuggingFace 读取 `hf_oauth: true` 自动配置 OAuth |
-
-> ModelScope 无需 README 中的 OAuth 配置，setup 页会引导手动创建。
+| 平台 | 文件 | 作用 |
+|------|------|------|
+| 通用 | **[`Dockerfile`](Dockerfile)** | 构建容器，自动安装 CAG 框架 + nanobot |
+| HF | **[`template/hf/README.md`](template/hf/README.md)** | 空间展示页 + `hf_oauth: true` 自动配置 OAuth |
+| MS | [`template/ms/README.md`](template/ms/README.md)（可选） | 空间展示页 |
 
 ## 🚀 使用方法
 
 ### HuggingFace
 1. 创建 [Docker Space](https://huggingface.co/new-space?sdks=docker)
-2. 上传 `Dockerfile` + 本 `README.md` 到空间
+2. 上传 [`Dockerfile`](Dockerfile) + [`template/hf/README.md`](template/hf/README.md)（重命名为 `README.md`）到空间根目录
 3. 等待构建完成 → 打开空间 → 填写 LLM 配置 → 开始使用
 4. OAuth 自动配置（`hf_oauth: true`），无需手动操作
 
 ### ModelScope
 1. 创建 [Docker 创空间](https://modelscope.cn/studios)
-2. 上传 `Dockerfile`（README 无需上传）
+2. 上传 [`Dockerfile`](Dockerfile) 到空间（[`template/ms/README.md`](template/ms/README.md) 可选上传）
 3. 等待构建完成 → 打开空间 → 填写 LLM + OAuth → 开始使用
 4. setup 页有 OAuth 应用创建指引
 
