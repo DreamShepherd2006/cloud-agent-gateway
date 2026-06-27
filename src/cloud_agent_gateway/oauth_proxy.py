@@ -369,7 +369,21 @@ BINDING_CHAT_CONTENT = f"""\
 
 👉 [`/reset-setup`](/reset-setup)
 
-操作后需**手动重启空间**（停止 → 启动）进入初始化配置页。"""
+操作后需**手动重启空间**（停止 → 启动）进入初始化配置页。
+
+---
+
+# 📦 开源代码
+
+本项目完全开源，基于 [cloud-agent-gateway](https://github.com/DreamShepherd2006/cloud-agent-gateway) 构建。
+
+🧭 **浏览源码** → 访问上方 GitHub 链接查看完整代码
+
+🔄 **部署到空间** → 在 ModelScope 创建空间时选择「通过 Git 上传」，输入：
+```
+https://github.com/DreamShepherd2006/cloud-agent-gateway
+```
+部署后空间的「文件」tab 即可看到完整源码。"""
 
 
 def _get_binding_chat_id() -> str | None:
