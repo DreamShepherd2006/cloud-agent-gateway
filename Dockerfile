@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN echo [bust=21] && pip install --no-cache-dir \
     "git+https://github.com/DreamShepherd2006/cloud-agent-gateway.git@v0.1.8" \
     itsdangerous \
-    "git+https://github.com/DreamShepherd2006/nanobot.git@nightly" \
+    "git+https://github.com/DreamShepherd2006/nanobot.git@dbdb146f" \
     && echo "[CAG+nanobot] installed"
 
 # ── 0.0.0.0 gateway 绑定 ─────────────────────────────────────────────
