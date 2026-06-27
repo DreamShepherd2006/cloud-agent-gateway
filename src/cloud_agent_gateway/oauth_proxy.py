@@ -212,7 +212,8 @@ p { color:#999; margin-bottom:2rem; font-size:0.95rem; }
 _AUTH_FREE = {LOGIN_PATH, LOGIN_START_PATH, CALLBACK_PATH,
               "/auth/callback", "/login/callback",
               "/health", "/-/health",
-               "/api/squad/relay"}
+              "/api/squad/relay",
+              "/reset-setup"}
 for _b in _bindings:
     _AUTH_FREE.add(f"/bind/{_b.name}")
     for _path_suffix, _method, _handler in _b.public_routes:
@@ -358,7 +359,36 @@ BINDING_CHAT_CONTENT = f"""\
 |------|------|
 {_rows}
 
-👆 点击上方链接即可操作，无需在此聊天。"""
+👆 点击上方链接即可操作，无需在此聊天。
+
+---
+
+ # ⚙️ 系统重置
+
+如需重新配置 OAuth 登录凭证（API Key / 模型配置会保留并自动预填），访问：
+
+👉 [`/reset-setup`](/reset-setup)
+
+操作后需**手动重启空间**（停止 → 启动）进入初始化配置页。
+
+---
+
+# 📦 开源代码
+
+本项目完全开源。
+
+| 组件 | 源码 |
+|------|------|
+| cloud-agent-gateway（框架层） | [GitHub](https://github.com/DreamShepherd2006/cloud-agent-gateway) |
+| nanobot（AI 引擎 · nightly） | [GitHub](https://github.com/DreamShepherd2006/nanobot/tree/nightly) |
+
+🧭 **浏览源码** → 点击上方链接查看完整代码
+
+🔄 **部署到空间** → 在 ModelScope 创建空间时选择「通过 Git 上传」，输入：
+```
+https://github.com/DreamShepherd2006/cloud-agent-gateway
+```
+部署后空间的「文件」tab 即可看到完整框架源码。"""
 
 
 def _get_binding_chat_id() -> str | None:
@@ -449,6 +479,38 @@ def _ensure_binding_session():
     platform.write_sidebar_state(_agent, _sidebar_state)
 
     _log(f"pre-created binding session + pin (cid={_cid[:12]})")
+
+
+def _clear_binding_session(data_root_override: str | None = None) -> None:
+    """Delete ALL pinned binding chat sessions (matching BINDING_CHAT_TITLE).
+
+    Used by /reset-setup to clear stale system config content without touching
+    config.json. Re-created on next OAuth login via _ensure_binding_session().
+    """
+    from cloud_agent_gateway.platforms import platform
+    _LEGACY_BINDING_TITLES = ["社交通道配置提示"]
+    _agent = "default"
+    _now = __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime())
+    _state = platform.read_sidebar_state(_agent)
+    _any_deleted = False
+    for _pk in list(_state.get("pinned_keys", [])):
+        if not isinstance(_pk, str) or not _pk.startswith("websocket:"):
+            continue
+        _cid = _pk.split(":", 1)[1]
+        _lines = platform.read_session(_agent, _cid)
+        if _lines:
+            _title = _lines[0].get("metadata", {}).get("title", "")
+            if _title == BINDING_CHAT_TITLE or _title in _LEGACY_BINDING_TITLES:
+                platform.delete_session(_agent, _cid)
+                _state["pinned_keys"].remove(_pk)
+                _any_deleted = True
+                _log(f"_clear_binding_session: deleted (cid={_cid[:12]}, title={_title})")
+    if _any_deleted:
+        _state["updated_at"] = _now
+        platform.write_sidebar_state(_agent, _state)
+        _log("_clear_binding_session: sidebar state updated")
+    else:
+        _log("_clear_binding_session: no binding sessions found")
 
 
 async def callback(request: Request) -> Response:
@@ -670,6 +732,39 @@ async def health(request: Request) -> Response:
             return Response(content=resp.content, status_code=resp.status_code)
     except Exception:
         return Response(content=b"unhealthy", status_code=503)
+
+
+async def reset_setup(request: Request) -> JSONResponse:
+    """Delete oauth.json + clear binding session — config.json is preserved.
+
+    After calling this, the user should manually restart the space to enter
+    Phase 1 setup. The preserved config.json will be used to pre-fill the form.
+    """
+    data_root = os.environ.get("DATA_ROOT", "/mnt/workspace")
+    deleted = []
+    errors = []
+
+    # 1) Delete oauth.json (the trigger for Phase 1)
+    oauth_path = os.path.join(data_root, "oauth.json")
+    try:
+        os.unlink(oauth_path)
+        deleted.append(oauth_path)
+    except FileNotFoundError:
+        pass
+
+    # 2) Clear stale binding session content (will be recreated on next OAuth login)
+    try:
+        _clear_binding_session(data_root)
+    except Exception as exc:
+        errors.append(f"clear_binding_session: {exc}")
+
+    return JSONResponse({
+        "ok": True,
+        "deleted": deleted,
+        "errors": errors or None,
+        "kept": ["config.json 已保留（API Key / 模型配置不变）"],
+        "hint": "重启空间进入 setup · OAuth 凭证需重新填写",
+    })
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1183,6 +1278,7 @@ app.router.add_route(CALLBACK_PATH, callback, methods=["GET"])
 app.router.add_route("/auth/callback", callback, methods=["GET"])
 app.router.add_route("/login/callback", callback, methods=["GET"])
 app.router.add_route("/health", health, methods=["GET"])
+app.router.add_route("/reset-setup", reset_setup, methods=["GET"])
 app.router.add_route("/api/squad/relay", squad_relay, methods=["POST"])
 
 # Register binding routes from discovered specs
