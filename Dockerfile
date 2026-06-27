@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ── CAG + nanobot ─────────────────────────────────────────────────────
 # 🔄 bump BUILD to force reinstall: 2
-RUN echo [bust=16] && pip install --no-cache-dir \
+RUN echo [bust=17] && pip install --no-cache-dir \
     "git+https://github.com/DreamShepherdCD/cloud-agent-gateway.git@feat/setup-page" \
     itsdangerous \
     "git+https://github.com/DreamShepherd2006/nanobot.git@nightly" \

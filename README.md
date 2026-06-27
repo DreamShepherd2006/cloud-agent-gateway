@@ -1,3 +1,57 @@
+---
+title: nanobot-cloud-demo
+emoji: ☁️
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+hf_oauth: true
+pinned: false
+---
+
+# 🤖 CAG — 一键部署个人 AI 助手
+
+上传 `Dockerfile` + `README.md` 到 HuggingFace 或 ModelScope 的 Docker 空间，即可拥有个人 AI 助手。
+
+## 📦 需要上传的文件
+
+| 文件 | 作用 |
+|------|------|
+| **`Dockerfile`** | 构建容器，自动安装 CAG 框架 + nanobot |
+| **`README.md`** | HuggingFace 读取 `hf_oauth: true` 自动配置 OAuth |
+
+> ModelScope 无需 README 中的 OAuth 配置，setup 页会引导手动创建。
+
+## 🚀 使用方法
+
+### HuggingFace
+1. 创建 [Docker Space](https://huggingface.co/new-space?sdks=docker)
+2. 上传 `Dockerfile` + 本 `README.md` 到空间
+3. 等待构建完成 → 打开空间 → 填写 LLM 配置 → 开始使用
+4. OAuth 自动配置（`hf_oauth: true`），无需手动操作
+
+### ModelScope
+1. 创建 [Docker 创空间](https://modelscope.cn/studios)
+2. 上传 `Dockerfile`（README 无需上传）
+3. 等待构建完成 → 打开空间 → 填写 LLM + OAuth → 开始使用
+4. setup 页有 OAuth 应用创建指引
+
+## 🔄 工作流程
+
+```
+打开空间 → 检测配置状态
+    ├─ 无 oauth.json → Phase 1 配置页（填 API Key / 模型 / OAuth）
+    └─ 有 oauth.json → Phase 2 正常运行（OAuth + 通道绑定）
+```
+
+## 🔧 重新配置
+
+1. 访问 `https://你的空间地址/reset-setup`（仅删除 OAuth，API Key 保留）
+2. 空间停止 → 启动
+3. 重新进入配置页（已有 API Key 会预填）
+
+---
+
 # cloud-agent-gateway
 
 AI agent 云部署体系的**框架底层**——平台抽象、OAuth 认证、通道绑定、持久化同步、HTTP Relay 中继。
@@ -185,7 +239,7 @@ proxy.mount_routes()
 └──────────────────────────────────────────────────────────────────┘
                               ▲ pip install
 ┌──────────────────────────────────────────────────────────────────┐
-│                cloud-agent-gateway (本包) v0.1.5                  │
+│                cloud-agent-gateway (本包)                          │
 │                         框架底层                                  │
 │                                                                  │
 │  ┌──────────┐ ┌───────────────────┐ ┌─────────────────────────┐  │
@@ -205,8 +259,6 @@ proxy.mount_routes()
 
 - [nanobot-legion](https://github.com/DreamShepherd2006/nanobot-legion) — 上层应用部署层（Squad 多智能体）
 - [HKUDS/nanobot](https://github.com/HKUDS/nanobot) — agent 框架
-- [PR #4139](https://github.com/HKUDS/nanobot/pull/4139) — `target_chat_id` 会话恢复（配合身份注入使用）
-- [PR #4271](https://github.com/HKUDS/nanobot/pull/4271) — `read_only` 会话元数据标记
 
 ## 许可证
 
