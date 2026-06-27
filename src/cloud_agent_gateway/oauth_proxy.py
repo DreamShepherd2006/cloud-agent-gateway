@@ -178,6 +178,7 @@ LOGIN_PAGE = """\
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>登录</title>
+<!-- CAG: workspace_scope fix v2 — real dir at data_root/BINDING_TITLE, renamed to 系统配置 -->
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { display:flex; align-items:center; justify-content:center; min-height:100vh;
@@ -211,7 +212,8 @@ p { color:#999; margin-bottom:2rem; font-size:0.95rem; }
 _AUTH_FREE = {LOGIN_PATH, LOGIN_START_PATH, CALLBACK_PATH,
               "/auth/callback", "/login/callback",
               "/health", "/-/health",
-               "/api/squad/relay"}
+              "/api/squad/relay",
+              "/reset-setup"}
 for _b in _bindings:
     _AUTH_FREE.add(f"/bind/{_b.name}")
     for _path_suffix, _method, _handler in _b.public_routes:
@@ -341,7 +343,8 @@ async def login_start(request: Request) -> RedirectResponse:
     return RedirectResponse(auth_url, status_code=302)
 
 
-BINDING_TITLE = "社交通道配置提示"
+BINDING_TITLE = "系统配置"
+BINDING_CHAT_TITLE = "社交通道配置指南"
 
 _rows = "\n".join(
     f"| {b.icon} {b.display} | [绑定{b.display}](/bind/{b.name}) |"
@@ -356,7 +359,36 @@ BINDING_CHAT_CONTENT = f"""\
 |------|------|
 {_rows}
 
-👆 点击上方链接即可操作，无需在此聊天。"""
+👆 点击上方链接即可操作，无需在此聊天。
+
+---
+
+ # ⚙️ 系统重置
+
+如需重新配置 OAuth 登录凭证（API Key / 模型配置会保留并自动预填），访问：
+
+👉 [`/reset-setup`](/reset-setup)
+
+操作后需**手动重启空间**（停止 → 启动）进入初始化配置页。
+
+---
+
+# 📦 开源代码
+
+本项目完全开源。
+
+| 组件 | 源码 |
+|------|------|
+| cloud-agent-gateway（框架层） | [GitHub](https://github.com/DreamShepherd2006/cloud-agent-gateway) |
+| nanobot（AI 引擎 · nightly） | [GitHub](https://github.com/DreamShepherd2006/nanobot/tree/nightly) |
+
+🧭 **浏览源码** → 点击上方链接查看完整代码
+
+🔄 **部署到空间** → 在 ModelScope 创建空间时选择「通过 Git 上传」，输入：
+```
+https://github.com/DreamShepherd2006/cloud-agent-gateway
+```
+部署后空间的「文件」tab 即可看到完整框架源码。"""
 
 
 def _get_binding_chat_id() -> str | None:
@@ -369,7 +401,7 @@ def _get_binding_chat_id() -> str | None:
             continue
         _cid = _pk.split(":", 1)[1]
         _lines = platform.read_session(_agent, _cid)
-        if _lines and _lines[0].get("metadata", {}).get("title") == BINDING_TITLE:
+        if _lines and _lines[0].get("metadata", {}).get("title") == BINDING_CHAT_TITLE:
             return _cid
     return None
 
@@ -386,8 +418,9 @@ def _ensure_binding_session():
     _agent = "default"
     _now = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
 
-    # Clean up ALL stale binding sessions (not just the first) — otherwise
-    # old sessions from previous restarts accumulate as duplicate pinned chats.
+    # Clean up ALL stale binding sessions — detect by matching title against
+    # both current BINDING_CHAT_TITLE and known historical titles.
+    _LEGACY_BINDING_TITLES = ["社交通道配置提示"]
     _state = platform.read_sidebar_state(_agent)
     _any_deleted = False
     for _pk in list(_state.get("pinned_keys", [])):
@@ -395,11 +428,13 @@ def _ensure_binding_session():
             continue
         _cid = _pk.split(":", 1)[1]
         _lines = platform.read_session(_agent, _cid)
-        if _lines and _lines[0].get("metadata", {}).get("title") == BINDING_TITLE:
-            platform.delete_session(_agent, _cid)
-            _state["pinned_keys"].remove(_pk)
-            _any_deleted = True
-            _log(f"deleted old binding session (cid={_cid[:12]})")
+        if _lines:
+            _title = _lines[0].get("metadata", {}).get("title", "")
+            if _title == BINDING_CHAT_TITLE or _title in _LEGACY_BINDING_TITLES:
+                platform.delete_session(_agent, _cid)
+                _state["pinned_keys"].remove(_pk)
+                _any_deleted = True
+                _log(f"deleted old binding session (cid={_cid[:12]}, title={_title})")
     if _any_deleted:
         _state["updated_at"] = _now
         platform.write_sidebar_state(_agent, _state)
@@ -408,11 +443,19 @@ def _ensure_binding_session():
     _cid = str(_uuid.uuid4())
     _key = f"websocket:{_cid}"
 
+    # Ensure the project_path directory exists so validate_workspace_scope_payload()
+    # does not reject it (nanobot requires project_path to be an existing directory).
+    import os as _os
+    _project_dir = f"{platform.data_root}/{BINDING_TITLE}"
+    _os.makedirs(_project_dir, exist_ok=True)
+
     platform.write_session(_agent, _cid, [
         {
             "_type": "metadata", "key": _key,
             "created_at": _now, "updated_at": _now,
-            "metadata": {"title": BINDING_TITLE, "webui": True},
+            "metadata": {"title": BINDING_CHAT_TITLE, "webui": True,
+                        "workspace_scope": {"project_path": _project_dir},
+                        "_binding_type": "system_config"},
             "last_consolidated": 0,
         },
         {
@@ -436,6 +479,38 @@ def _ensure_binding_session():
     platform.write_sidebar_state(_agent, _sidebar_state)
 
     _log(f"pre-created binding session + pin (cid={_cid[:12]})")
+
+
+def _clear_binding_session(data_root_override: str | None = None) -> None:
+    """Delete ALL pinned binding chat sessions (matching BINDING_CHAT_TITLE).
+
+    Used by /reset-setup to clear stale system config content without touching
+    config.json. Re-created on next OAuth login via _ensure_binding_session().
+    """
+    from cloud_agent_gateway.platforms import platform
+    _LEGACY_BINDING_TITLES = ["社交通道配置提示"]
+    _agent = "default"
+    _now = __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime())
+    _state = platform.read_sidebar_state(_agent)
+    _any_deleted = False
+    for _pk in list(_state.get("pinned_keys", [])):
+        if not isinstance(_pk, str) or not _pk.startswith("websocket:"):
+            continue
+        _cid = _pk.split(":", 1)[1]
+        _lines = platform.read_session(_agent, _cid)
+        if _lines:
+            _title = _lines[0].get("metadata", {}).get("title", "")
+            if _title == BINDING_CHAT_TITLE or _title in _LEGACY_BINDING_TITLES:
+                platform.delete_session(_agent, _cid)
+                _state["pinned_keys"].remove(_pk)
+                _any_deleted = True
+                _log(f"_clear_binding_session: deleted (cid={_cid[:12]}, title={_title})")
+    if _any_deleted:
+        _state["updated_at"] = _now
+        platform.write_sidebar_state(_agent, _state)
+        _log("_clear_binding_session: sidebar state updated")
+    else:
+        _log("_clear_binding_session: no binding sessions found")
 
 
 async def callback(request: Request) -> Response:
@@ -659,6 +734,40 @@ async def health(request: Request) -> Response:
         return Response(content=b"unhealthy", status_code=503)
 
 
+async def reset_setup(request: Request) -> JSONResponse:
+    """Delete oauth.json + clear binding session — config.json is preserved.
+
+    After calling this, the user should manually restart the space to enter
+    Phase 1 setup. The preserved config.json will be used to pre-fill the form.
+    """
+    deleted = []
+    errors = []
+
+    # 1) Delete oauth.json (the trigger for Phase 1)
+    # Match the Dockerfile CMD check: /data (HF) or /mnt/workspace (MS).
+    # Using env DATA_ROOT alone fails on HF where DATA_ROOT may not be set.
+    for oauth_path in ["/data/oauth.json", "/mnt/workspace/oauth.json"]:
+        try:
+            os.unlink(oauth_path)
+            deleted.append(oauth_path)
+        except FileNotFoundError:
+            pass
+
+    # 2) Clear stale binding session content (will be recreated on next OAuth login)
+    try:
+        _clear_binding_session()
+    except Exception as exc:
+        errors.append(f"clear_binding_session: {exc}")
+
+    return JSONResponse({
+        "ok": True,
+        "deleted": deleted,
+        "errors": errors or None,
+        "kept": ["config.json 已保留（API Key / 模型配置不变）"],
+        "hint": "重启空间进入 setup · OAuth 凭证需重新填写",
+    })
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Helpers for identity resolution
 # ═══════════════════════════════════════════════════════════════════
@@ -760,6 +869,22 @@ async def http_proxy(request: Request) -> Response:
             _log(f"GET /api/sessions → {resp.status_code}")
 
     content = resp.content
+
+    # Fix ws_url in bootstrap response for platforms where the Host header
+    # seen by nanobot is an internal proxy address (e.g., ModelScope PAI-EAS).
+    # nanobot >= dbdb146f constructs ws_url from the Host header; we must
+    # rewrite it to a relative path so the browser connects through this proxy.
+    if path == "/webui/bootstrap" and resp.status_code == 200:
+        try:
+            data = json.loads(content)
+            ws_path = data.get("ws_path", "")
+            if ws_path:
+                data["ws_url"] = ws_path
+                content = json.dumps(data).encode("utf-8")
+                _log("bootstrap ws_url → ws_path (Host header fix)")
+        except Exception as exc:
+            _log(f"bootstrap ws_url fix skipped: {exc}")
+
     content_type = resp.headers.get("content-type", "")
     if request.scope.get("_auth_token"):
         content = _inject_token_script(content, content_type)
@@ -833,6 +958,34 @@ async def ws_proxy(websocket: WebSocket) -> None:
                                 envelope["sender_name"] = username
                                 data = json.dumps(envelope)
                                 _log(f"WS → neo: type={envelope.get('type','?')} cid={envelope.get('chat_id','?')[:12]}")
+
+                                # Block new chat creation in system config project:
+                                # only pre-defined chats (binding sessions) allowed.
+                                if envelope.get("type") == "new_chat":
+                                    _ws = envelope.get("workspace_scope", {}) or {}
+                                    _pp = (_ws.get("project_path") or "").rstrip("/")
+                                    if _pp.endswith("/" + BINDING_TITLE):
+                                        await websocket.send_text(json.dumps({
+                                            "event": "error",
+                                            "detail": "workspace_scope_rejected",
+                                            "reason": "系统配置项目不允许创建新对话",
+                                            "chat_id": envelope.get("chat_id", ""),
+                                        }))
+                                        _log(f"WS → blocked new_chat in '{BINDING_TITLE}' project")
+                                        continue
+                                # Block moving existing chats into system config project
+                                if envelope.get("type") == "set_workspace_scope":
+                                    _ws = envelope.get("workspace_scope", {}) or {}
+                                    _pp = (_ws.get("project_path") or "").rstrip("/")
+                                    if _pp.endswith("/" + BINDING_TITLE):
+                                        await websocket.send_text(json.dumps({
+                                            "event": "error",
+                                            "detail": "workspace_scope_rejected",
+                                            "reason": "不能将会话移到系统配置项目",
+                                            "chat_id": envelope.get("chat_id", ""),
+                                        }))
+                                        _log(f"WS → blocked set_workspace_scope in '{BINDING_TITLE}' project")
+                                        continue
 
                                 # Block messages to binding chat: don't forward to Neo.
                                 _binding_cid = _get_binding_chat_id()
@@ -919,7 +1072,7 @@ async def ws_proxy(websocket: WebSocket) -> None:
                         break
 
             async def setup_title():
-                """Ensure a '社交通道配置提示' chat exists, is correctly titled, and pinned."""
+                """Ensure a '系统配置' chat exists, is correctly titled, and pinned."""
                 nonlocal current_chat_id
                 _log(f"WS setup_title: started (username={username})")
                 try:
@@ -936,7 +1089,7 @@ async def ws_proxy(websocket: WebSocket) -> None:
                             continue
                         _cid = _pk.split(":", 1)[1]
                         _lines = platform.read_session(_agent, _cid)
-                        if _lines and _lines[0].get("metadata", {}).get("title") == BINDING_TITLE:
+                        if _lines and _lines[0].get("metadata", {}).get("title") == BINDING_CHAT_TITLE:
                             _pinned_cid = _cid
                             break
 
@@ -983,7 +1136,7 @@ async def ws_proxy(websocket: WebSocket) -> None:
                         _existing = platform.read_session(_agent, current_chat_id)
                         if _existing:
                             # Update: set title + replace first user message
-                            _existing[0].setdefault("metadata", {})["title"] = BINDING_TITLE
+                            _existing[0].setdefault("metadata", {})["title"] = BINDING_CHAT_TITLE
                             _found = False
                             for _entry in _existing[1:]:
                                 if _entry.get("role") == "user":
@@ -1004,7 +1157,7 @@ async def ws_proxy(websocket: WebSocket) -> None:
                                 {
                                     "_type": "metadata", "key": _key,
                                     "created_at": _now, "updated_at": _now,
-                                    "metadata": {"title": BINDING_TITLE, "webui": True},
+                                    "metadata": {"title": BINDING_CHAT_TITLE, "webui": True},
                                     "last_consolidated": 0,
                                 },
                                 {
@@ -1126,6 +1279,7 @@ app.router.add_route(CALLBACK_PATH, callback, methods=["GET"])
 app.router.add_route("/auth/callback", callback, methods=["GET"])
 app.router.add_route("/login/callback", callback, methods=["GET"])
 app.router.add_route("/health", health, methods=["GET"])
+app.router.add_route("/reset-setup", reset_setup, methods=["GET"])
 app.router.add_route("/api/squad/relay", squad_relay, methods=["POST"])
 
 # Register binding routes from discovered specs

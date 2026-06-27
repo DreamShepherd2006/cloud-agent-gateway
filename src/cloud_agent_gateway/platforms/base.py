@@ -321,12 +321,15 @@ class CloudPlatformProtocol(Protocol):
 
         Calls ``_on_persistent_write`` for platform-specific sync.
         """
-        import json
+        import json, time
         cred_path = self._credential_path(agent_id, channel)
         os.makedirs(os.path.dirname(cred_path), exist_ok=True)
         with open(cred_path, "w") as f:
             json.dump(data, f)
         os.chmod(cred_path, 0o600)
+        _mtime = os.path.getmtime(cred_path)
+        _tk = str(data.get("token", ""))[:16] if data.get("token") else "(none)"
+        print(f"[persist] write_credential {agent_id}/{channel} → {cred_path} token={_tk}... mtime={_mtime:.0f} buf_len={len(data.get('get_updates_buf','') or '')}", flush=True)
         self._on_persistent_write()
 
     def write_config(self, agent_id: str, config: dict) -> None:

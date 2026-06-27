@@ -122,7 +122,7 @@ Returns `{"wechat": {"bound": true/false}, "dingtalk": {"bound": true/false}, ..
 
 When a user first chats, check binding status silently. If any channel is unbound:
 
-> 检测到你还未绑定社交通道。回复「绑定微信」、或打开左侧栏「社交通道配置」自行操作。
+> 检测到你还未绑定社交通道。回复「绑定微信」、或打开左侧栏「系统配置」自行操作。
 
 Only prompt once per user — don't nag after they decline or complete binding.
 
@@ -144,7 +144,7 @@ BINDING_SYSTEM_PROMPT = (
     "To check binding status, silently call GET http://127.0.0.1:7860/api/bind/status "
     "on the first interaction with each user.\n"
     "If any channel is unbound, proactively offer help:\n"
-    '  "检测到你还未绑定社交通道。回复「绑定微信」或打开左侧栏「社交通道配置」自行操作。"\n\n'
+    '  "检测到你还未绑定社交通道。回复「绑定微信」或打开左侧栏「系统配置」自行操作。"\n\n'
     "WeChat: POST /api/bind/wechat/qr → display QR → poll /api/bind/wechat/status?qrcode=xxx\n"
     "DingTalk: ask AppKey+AppSecret → POST /api/bind/dingtalk/submit\n"
     "Telegram: ask bot token → POST /api/bind/telegram/submit\n"
