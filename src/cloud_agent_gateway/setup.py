@@ -361,7 +361,8 @@ fm.addEventListener('submit', async function(e){
   } else {
     msg.innerHTML = '\u274c 保存失败: '+ (data.error||'未知错误');
   }
-});
+ });
+{PREFILL_JS}
 </script>
 </body>
 </html>"""
@@ -392,7 +393,29 @@ CONFIG_PATH = os.path.join(DATA_ROOT, "instances", "default", "config.json")
 
 
 async def get_setup(request: Request) -> HTMLResponse:
-    return HTMLResponse(SETUP_HTML)
+    """Return setup HTML with pre-filled values if config.json already exists."""
+    prefill_js = ""
+    try:
+        if os.path.isfile(CONFIG_PATH):
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            provider = (cfg.get("agents", {}).get("defaults", {}).get("provider") or "")
+            model = (cfg.get("agents", {}).get("defaults", {}).get("model") or "")
+            api_key = (cfg.get("providers", {}).get(provider, {}).get("api_key") or "")
+            api_base = (cfg.get("providers", {}).get(provider, {}).get("api_base") or "")
+            escape_js = lambda s: s.replace("\\", "\\\\").replace("'", "\\'")
+            prefill_js = f"""
+// 🔄 检测到已有 config.json → 预填
+document.getElementById('provider').value = '{escape_js(provider)}';
+document.getElementById('model').value = '{escape_js(model)}';
+document.getElementById('api_key').value = '{escape_js(api_key)}';
+// OAuth 凭证不在 config.json 中，需要重新填写
+console.log('[setup] pre-filled provider={provider} model={model} api_key_len={len(api_key)}');
+"""
+            print(f"[setup] 🔄 预填 config.json: provider={provider}, model={model}, api_key={'***' if api_key else '(空)'}", flush=True)
+    except Exception as e:
+        print(f"[setup] ⚠️ 预填失败（忽略）: {e}", flush=True)
+    return HTMLResponse(SETUP_HTML.replace("{PREFILL_JS}", prefill_js))
 
 
 async def post_setup(request: Request) -> JSONResponse:
