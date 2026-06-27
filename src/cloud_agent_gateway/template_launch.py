@@ -12,7 +12,8 @@ import time
 
 
 def main() -> None:
-    data_root = os.environ.get("DATA_ROOT", "/mnt/workspace")
+    from cloud_agent_gateway.setup import _detect_data_root
+    data_root = _detect_data_root()
     config_path = os.path.join(data_root, "instances", "default", "config.json")
     home = os.environ.get("HOME", "/home/nanobot")
 
