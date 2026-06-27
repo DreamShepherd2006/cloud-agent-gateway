@@ -380,7 +380,7 @@ BINDING_CHAT_CONTENT = f"""\
 | 组件 | 源码 |
 |------|------|
 | cloud-agent-gateway（框架层） | [GitHub](https://github.com/DreamShepherd2006/cloud-agent-gateway) |
-| nanobot（AI 引擎） | [GitHub](https://github.com/DreamShepherd2006/nanobot) |
+| nanobot（AI 引擎 · nightly） | [GitHub](https://github.com/DreamShepherd2006/nanobot/tree/nightly) |
 
 🧭 **浏览源码** → 点击上方链接查看完整代码
 
