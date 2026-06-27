@@ -1,27 +1,27 @@
 """
 CAG Template Phase 2 launcher.
 
-Same path as MS Cloud Native:
-  oauth.json → env vars → platform_setup → gateway → oauth_proxy
+Identical to Cloud Native entrypoint.sh flow:
+    platform_setup → data_root → first-run seed → storage symlink
+    → gateway → oauth_proxy
+
+Extra: export OAUTH_CLIENT_ID / OAUTH_CLIENT_SECRET from oauth.json
+(Phase 1 writes it; Phase 2 reads it for OAuth auto-config).
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
 
 
 def main() -> None:
-    from cloud_agent_gateway.setup import _detect_data_root
-    data_root = _detect_data_root()
-    config_path = os.path.join(data_root, "instances", "default", "config.json")
-    home = os.environ.get("HOME", "/home/nanobot")
-
     print(f"\n{'='*50}")
     print(f"  CAG template — Phase 2 — production mode")
     print(f"{'='*50}\n")
 
-    # ── 1. Platform detection (identical to MS Cloud Native) ──
+    # ── 1. Platform detection (matches Cloud Native entrypoint.sh) ──
     print("── Platform ──")
     sys.stdout.flush()
     result = subprocess.run(
@@ -38,9 +38,12 @@ def main() -> None:
                 name, _, val = rest.partition("=")
                 val = val.strip("'\"")
                 os.environ[name] = val
-    print(f"    platform: {os.environ.get('DEPLOY_PLATFORM', 'unknown')}")
 
-    # ── 2. OAuth (exports same env vars MS Cloud Native uses) ──
+    # Use DATA_ROOT from platform_setup (Cloud Native source of truth)
+    data_root = os.environ.get("DATA_ROOT", "/data")
+    print(f"    data_root: {data_root}")
+
+    # ── 2. OAuth from oauth.json (Phase 1→2 bridge) ──
     print("── OAuth ──")
     oauth_path = os.path.join(data_root, "oauth.json")
     try:
@@ -57,14 +60,25 @@ def main() -> None:
     except FileNotFoundError:
         print("    ℹ️  oauth.json not found (OAuth disabled)")
 
-    # ── 3. Storage ──
+    # ── 3. Config seed + storage (matches Cloud Native entrypoint.sh) ──
     print("── Storage ──")
     inst_dir = os.path.join(data_root, "instances", "default")
-    os.makedirs(f"{inst_dir}/workspace/sessions", exist_ok=True)
-    os.makedirs(f"{inst_dir}/workspace/memory", exist_ok=True)
-    channels_dir = f"{inst_dir}/channels"
-    os.makedirs(channels_dir, exist_ok=True)
+    config_path = os.path.join(inst_dir, "config.json")
 
+    # First-run config seed
+    if not os.path.isfile(config_path):
+        os.makedirs(inst_dir, exist_ok=True)
+        template_cfg = "/app/config.template.json"
+        if os.path.isfile(template_cfg):
+            shutil.copy(template_cfg, config_path)
+            print(f"    🔧 first run: seeded config from {template_cfg}")
+        else:
+            print(f"    ⚠️  {template_cfg} not found — nanobot will use defaults")
+    else:
+        os.makedirs(inst_dir, exist_ok=True)
+
+    # Symlink ~/.nanobot/instances → $DATA_ROOT/instances (Cloud Native pattern)
+    home = os.environ.get("HOME", "/home/nanobot")
     nanobot_home = os.path.join(home, ".nanobot")
     os.makedirs(nanobot_home, exist_ok=True)
     link = f"{nanobot_home}/instances"
@@ -73,11 +87,15 @@ def main() -> None:
             os.symlink(f"{data_root}/instances", link)
         except FileExistsError:
             pass
+
+    # Channel credential path (NANOBOT_ACCOUNT_BASE)
+    channels_dir = f"{inst_dir}/channels"
+    os.makedirs(channels_dir, exist_ok=True)
     os.environ["NANOBOT_ACCOUNT_BASE"] = channels_dir
     print(f"    instances  → {link}")
     print(f"    channels   → {channels_dir}")
 
-    # ── 4. Gateway ──
+    # ── 4. Gateway (matches Cloud Native entrypoint.sh) ──
     print("── Gateway ──")
     with open(config_path) as f:
         cfg = json.load(f)
@@ -113,7 +131,7 @@ def main() -> None:
         print("❌ gateway failed to start", file=sys.stderr)
         sys.exit(1)
 
-    # ── 5. OAuth proxy (same as MS Cloud Native) ──
+    # ── 5. OAuth proxy (matches Cloud Native entrypoint.sh) ──
     print("── Proxy ──")
     print("    oauth_proxy → :7860")
     print(f"{'='*50}\n")

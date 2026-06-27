@@ -66,10 +66,7 @@ def _detect_data_root() -> str:
     """Determine the persistent data root for the current platform."""
     if os.environ.get("MODELSCOPE_ENVIRONMENT") == "studio":
         return "/mnt/workspace"
-    if os.environ.get("HF_SPACE") == "1" or os.environ.get("SPACE_ID"):
-        space_id = os.environ.get("SPACE_ID", "default")
-        return f"/data/instances/{space_id}"
-    # Docker / unknown fallback
+    # HF Spaces, Docker, unknown — all /data
     return "/data"
 
 

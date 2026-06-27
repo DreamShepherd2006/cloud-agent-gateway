@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ── CAG + nanobot ─────────────────────────────────────────────────────
 # 🔄 bump BUILD to force reinstall: 2
-RUN echo [bust=17] && pip install --no-cache-dir \
+RUN echo [bust=19] && pip install --no-cache-dir \
     "git+https://github.com/DreamShepherdCD/cloud-agent-gateway.git@feat/setup-page" \
     itsdangerous \
     "git+https://github.com/DreamShepherd2006/nanobot.git@nightly" \
@@ -36,5 +36,4 @@ USER nanobot
 ENV HOME=/home/nanobot
 
 # oauth.json 不存在 → Phase 1 setup；存在 → Phase 2 启动
-# 复用 _detect_data_root() 确保路径一致（HF=/data/instances/{SPACE_ID}, MS=/mnt/workspace）
-CMD ["bash", "-c", "python3 -c \"import sys,os; from cloud_agent_gateway.setup import _detect_data_root; sys.exit(0 if os.path.isfile(os.path.join(_detect_data_root(),'oauth.json')) else 1)\" && exec python3 -m cloud_agent_gateway.template_launch || exec python3 -m cloud_agent_gateway.setup"]
+CMD ["bash", "-c", "[ -f /data/oauth.json ] || [ -f /mnt/workspace/oauth.json ] && exec python3 -m cloud_agent_gateway.template_launch || exec python3 -m cloud_agent_gateway.setup"]
