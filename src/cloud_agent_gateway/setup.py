@@ -143,12 +143,16 @@ def _build_config(form: dict[str, str]) -> dict:
         },
     }
 
-    # OAuth 配置写入单独文件，避免 nanobot pydantic 拒绝 extra fields
-    client_id = form.get("oauth_client_id", "").strip()
-    client_secret = form.get("oauth_client_secret", "").strip()
-    oauth_cfg = {}
-    if client_id and client_secret:
-        oauth_cfg = {"client_id": client_id, "client_secret": client_secret}
+    # OAuth 配置：优先使用环境变量（HF hf_oauth:true 自动注入），
+    # 否则从表单读取（ModelScope 用户手动填写）
+    env_id = os.environ.get("OAUTH_CLIENT_ID", "").strip()
+    env_secret = os.environ.get("OAUTH_CLIENT_SECRET", "").strip()
+    if env_id and env_secret:
+        oauth_cfg = {"client_id": env_id, "client_secret": env_secret}
+    else:
+        client_id = form.get("oauth_client_id", "").strip()
+        client_secret = form.get("oauth_client_secret", "").strip()
+        oauth_cfg = {"client_id": client_id, "client_secret": client_secret} if client_id and client_secret else {}
 
     return config, oauth_cfg
 
@@ -227,12 +231,15 @@ SETUP_HTML = """\
       <datalist id="model-list"></datalist>
       <p class="tip">可输入自定义模型名，或从列表中选择。</p>
 
-      <hr class="divider">
+       <hr class="divider">
 
-      <h2 class="section-title">🔐 OAuth 登录（可选）</h2>
-      <p class="sub">配置后可通过 ModelScope / HuggingFace 账号登录，无需重复填 API Key。</p>
+       <h2 class="section-title">🔐 OAuth 登录</h2>
+       <p class="sub" id="oauth-sub">配置后可通过 ModelScope / HuggingFace 账号登录，无需重复填 API Key。</p>
+       <div id="oauth-auto-note" style="display:none;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:12px 16px;font-size:13px;margin-bottom:4px">
+         ✅ <b>HuggingFace OAuth 已自动配置</b>（README 中 <code>hf_oauth: true</code>）— 无需手动填 OAuth 凭证
+       </div>
 
-      <div id="oauth-section">
+       <div id="oauth-section">
         <p class="step-num">① 复制你的空间地址 &amp; 回调地址</p>
         <div class="copy-box">
           <code id="space-url">检测中...</code>
@@ -344,6 +351,13 @@ function copySpaceUrl() {
   }).catch(function(){
     prompt('按 Ctrl+C 复制:', spaceUrl);
   });
+}
+
+// OAuth 自动配置（HF hf_oauth:true → OAUTH_CLIENT_ID env 已注入）
+var HF_OAUTH_AUTO = {HF_OAUTH_AUTO};
+if (HF_OAUTH_AUTO) {
+  document.getElementById('oauth-section').style.display = 'none';
+  document.getElementById('oauth-auto-note').style.display = '';
 }
 
 // 平台检测：有 ms.show 域名 → ModelScope，否则 HuggingFace
