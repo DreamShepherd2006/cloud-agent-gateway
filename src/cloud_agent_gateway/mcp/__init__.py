@@ -62,11 +62,14 @@ def inject_mcp_config(config_path: str) -> bool:
     # If the config template ships with an empty "mcpServers" (camelCase),
     # it shadows our snake_case "mcp_servers" during model validation,
     # causing all injected MCP servers to be silently dropped.
-    tools.pop("mcpServers", None)
+    changed = False
+    if "mcpServers" in tools:
+        del tools["mcpServers"]
+        changed = True
+        print("    [CAG-MCP] removed stale mcpServers (camelCase)")
     existing = tools.setdefault("mcp_servers", {})
     incoming = get_mcp_server_configs()
 
-    changed = False
     for name, server_cfg in incoming.items():
         if name not in existing:
             existing[name] = server_cfg
