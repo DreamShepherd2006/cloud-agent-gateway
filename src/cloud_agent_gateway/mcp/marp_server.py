@@ -12,9 +12,39 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Built-in Marp themes — always available
+_BUILTIN_THEMES = {"default", "gaia", "uncover"}
+
+# Directory containing community CSS theme files (relative to this file)
+_THEMES_DIR = Path(__file__).parent / "themes"
+
 # Default Marp theme (gaia = elegant gradient, good for business)
 DEFAULT_THEME = "gaia"
-AVAILABLE_THEMES = ["default", "gaia", "uncover"]
+
+
+def _discover_themes() -> dict[str, Path | None]:
+    """Scan built-in + themes/ directory for CSS themes.
+
+    Returns dict {theme_name: Path_or_None}.
+    Built-in themes map to None (no --theme-set needed).
+    Custom themes map to their CSS file path.
+    """
+    themes: dict[str, Path | None] = {t: None for t in _BUILTIN_THEMES}
+    if not _THEMES_DIR.is_dir():
+        return themes
+    for css_file in _THEMES_DIR.glob("*.css"):
+        try:
+            text = css_file.read_text(encoding="utf-8")
+            for line in text.split("\n"):
+                if "@theme" in line:
+                    # Extract theme name from /* @theme xxx */ or @theme xxx
+                    name = line.split("@theme", 1)[1].replace("*/", "").strip()
+                    if name:
+                        themes[name] = css_file
+                    break
+        except Exception:
+            pass
+    return themes
 
 
 def _check_marp() -> str | None:
@@ -90,14 +120,16 @@ def main() -> None:
         fmt = output_format.lower()
         if fmt not in ("pptx", "pdf", "html"):
             return f"Error: unsupported format '{output_format}'. Use pptx, pdf, or html."
-        if theme not in AVAILABLE_THEMES:
-            return f"Error: unknown theme '{theme}'. Available: {', '.join(AVAILABLE_THEMES)}"
+
+        themes = _discover_themes()
+        if theme not in themes:
+            available = ", ".join(sorted(themes.keys()))
+            return f"Error: unknown theme '{theme}'. Available: {available}"
 
         # Ensure the markdown has Marp frontmatter (auto-add if missing)
         if not markdown.strip().startswith("---"):
             markdown = f"---\nmarp: true\ntheme: {theme}\n---\n\n{markdown}"
         elif "marp:" not in markdown[:200]:
-            # Has frontmatter but not marp-specific — inject after first ---
             markdown = markdown.replace("---", f"---\nmarp: true\ntheme: {theme}", 1)
 
         md_file = None
@@ -124,6 +156,11 @@ def main() -> None:
                 "--allow-local-files",
                 "-o", out_file,
             ]
+
+            # Custom themes: point marp at the themes directory
+            if theme not in _BUILTIN_THEMES and themes.get(theme):
+                args.insert(1, str(_THEMES_DIR))
+                args.insert(1, "--theme-set")
 
             result = subprocess.run(
                 args,
@@ -157,13 +194,20 @@ def main() -> None:
     @mcp.tool()
     def list_themes() -> str:
         """List available Marp themes."""
-        return (
-            f"Available Marp themes ({len(AVAILABLE_THEMES)}):\n"
-            + "\n".join(f"  • {t}" for t in AVAILABLE_THEMES)
-            + f"\n\nDefault theme: {DEFAULT_THEME}\n"
-            + "Tip: use 'gaia' for elegant business presentations, "
-            + "'uncover' for modern tech talks, 'default' for clean simplicity."
-        )
+        themes = _discover_themes()
+        builtin = [t for t, p in themes.items() if p is None]
+        custom = [t for t, p in themes.items() if p is not None]
+        lines = [f"Available Marp themes ({len(themes)} total):"]
+        lines.append("\n  Built-in:")
+        for t in sorted(builtin):
+            marker = " ★" if t == DEFAULT_THEME else ""
+            lines.append(f"    • {t}{marker}")
+        if custom:
+            lines.append("\n  Community:")
+            for t in sorted(custom):
+                lines.append(f"    • {t}")
+        lines.append(f"\nDefault: {DEFAULT_THEME}")
+        return "\n".join(lines)
 
     print("[marp] MCP server ready", file=sys.stderr)
     mcp.run()
