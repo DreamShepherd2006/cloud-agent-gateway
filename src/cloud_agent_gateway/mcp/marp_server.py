@@ -117,11 +117,12 @@ def main() -> None:
                 args = ["npx", "-y", "@marp-team/marp-cli"]
             else:
                 args = ["marp"]
+            out_file = str(Path(out_dir) / f"output.{fmt}")
             args += [
                 md_file,
                 f"--{fmt}",
                 "--allow-local-files",
-                "-o", out_dir,
+                "-o", out_file,
             ]
 
             result = subprocess.run(
@@ -141,12 +142,12 @@ def main() -> None:
             if result.returncode != 0:
                 return f"Marp error ({result.returncode}): {result.stderr.strip()}"
 
-            # Find the output file
-            output_files = list(Path(out_dir).glob(f"*.{fmt}"))
-            if not output_files:
+            # Verify output file
+            out_path = Path(out_file)
+            if not out_path.is_file() or out_path.stat().st_size == 0:
                 return "Error: no output file generated. Check markdown content has at least one slide."
 
-            return f"Generated: {output_files[0]} ({output_files[0].stat().st_size} bytes)"
+            return f"Generated: {out_path} ({out_path.stat().st_size} bytes)"
 
         finally:
             if md_file and os.path.isfile(md_file):
