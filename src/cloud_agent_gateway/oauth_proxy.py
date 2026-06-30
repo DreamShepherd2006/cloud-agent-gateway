@@ -47,6 +47,7 @@ if _cloud_dir not in sys.path:
 
 from cloud_agent_gateway.platforms import platform as _platform
 from cloud_agent_gateway.channel_binding import bind_status, discover
+from cloud_agent_gateway import file_manager
 
 # Discover channel bindings at module load (triggers import of deploy-layer modules)
 _bindings = discover()
@@ -344,7 +345,7 @@ async def login_start(request: Request) -> RedirectResponse:
 
 
 BINDING_TITLE = "系统配置"
-BINDING_CHAT_TITLE = "社交通道配置指南"
+BINDING_CHAT_TITLE = "配置中心"
 
 _rows = "\n".join(
     f"| {b.icon} {b.display} | [绑定{b.display}](/bind/{b.name}) |"
@@ -360,6 +361,16 @@ BINDING_CHAT_CONTENT = f"""\
 {_rows}
 
 👆 点击上方链接即可操作，无需在此聊天。
+
+---
+
+ # 📁 文件管理
+
+上传、下载、管理你的文件（PPTX、视频、文档等）：
+
+👉 [`/files`](/files)
+
+Agent 生成的输出文件存放在此，可随时下载。
 
 ---
 
@@ -1281,6 +1292,15 @@ app.router.add_route("/login/callback", callback, methods=["GET"])
 app.router.add_route("/health", health, methods=["GET"])
 app.router.add_route("/reset-setup", reset_setup, methods=["GET"])
 app.router.add_route("/api/squad/relay", squad_relay, methods=["POST"])
+
+# File manager — /files/…
+app.router.add_route("/files", file_manager.list_page, methods=["GET"])
+app.router.add_route("/files/", file_manager.list_page, methods=["GET"])
+app.router.add_route("/files/view/{path:path}", file_manager.view_file, methods=["GET"])
+app.router.add_route("/files/upload", file_manager.upload_file, methods=["POST"])
+app.router.add_route("/files/delete/{path:path}", file_manager.delete_entry, methods=["DELETE"])
+app.router.add_route("/files/mkdir", file_manager.mkdir, methods=["POST"])
+app.router.add_route("/files/touch", file_manager.touch_file, methods=["POST"])
 
 # Register binding routes from discovered specs
 for _b in _bindings:

@@ -30,3 +30,6 @@ cloud-gateway-setup = "cloud_agent_gateway.platform_setup:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"cloud_agent_gateway.mcp" = ["themes/*.css"]
