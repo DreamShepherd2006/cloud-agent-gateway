@@ -4,7 +4,7 @@ WORKDIR /app
 
 # ── 系统依赖 ──────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl git nodejs npm \
+    curl git nodejs npm fonts-wqy-microhei \
     && rm -rf /var/lib/apt/lists/*
 
 # ── CAG + nanobot ─────────────────────────────────────────────────────
