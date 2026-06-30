@@ -345,7 +345,7 @@ async def login_start(request: Request) -> RedirectResponse:
 
 
 BINDING_TITLE = "系统配置"
-BINDING_CHAT_TITLE = "社交通道配置指南"
+BINDING_CHAT_TITLE = "配置中心"
 
 _rows = "\n".join(
     f"| {b.icon} {b.display} | [绑定{b.display}](/bind/{b.name}) |"
