@@ -157,10 +157,12 @@ def main() -> None:
                 "-o", out_file,
             ]
 
-            # Custom themes: point marp at the themes directory
+            # Custom themes: point marp at the specific theme CSS file
             if theme not in _BUILTIN_THEMES and themes.get(theme):
-                args.insert(1, str(_THEMES_DIR))
-                args.insert(1, "--theme-set")
+                # Insert before the markdown file (works with both marp and npx)
+                md_idx = args.index(md_file)
+                args.insert(md_idx, str(themes[theme]))
+                args.insert(md_idx, "--theme-set")
 
             result = subprocess.run(
                 args,
