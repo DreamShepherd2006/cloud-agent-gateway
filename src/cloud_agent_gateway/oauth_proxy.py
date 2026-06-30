@@ -1298,7 +1298,9 @@ app.router.add_route("/files", file_manager.list_page, methods=["GET"])
 app.router.add_route("/files/", file_manager.list_page, methods=["GET"])
 app.router.add_route("/files/view/{path:path}", file_manager.view_file, methods=["GET"])
 app.router.add_route("/files/upload", file_manager.upload_file, methods=["POST"])
-app.router.add_route("/files/delete/{path:path}", file_manager.delete_file, methods=["DELETE"])
+app.router.add_route("/files/delete/{path:path}", file_manager.delete_entry, methods=["DELETE"])
+app.router.add_route("/files/mkdir", file_manager.mkdir, methods=["POST"])
+app.router.add_route("/files/touch", file_manager.touch_file, methods=["POST"])
 
 # Register binding routes from discovered specs
 for _b in _bindings:
