@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cloud-agent-gateway"
-version = "0.1.5"
+version = "0.1.9"
 description = "Framework-agnostic cloud deployment layer for AI agents"
 readme = "README.md"
 license = {text = "MIT"}

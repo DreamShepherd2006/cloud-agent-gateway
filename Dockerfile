@@ -9,11 +9,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ── CAG + nanobot ─────────────────────────────────────────────────────
 # 🔄 bump BUILD to force reinstall: 3
-RUN echo [bust=21] && pip install --no-cache-dir \
+RUN echo [bust=22] && pip install --no-cache-dir \
     "git+https://github.com/DreamShepherd2006/cloud-agent-gateway.git@v0.1.8" \
     itsdangerous \
+    markitdown \
     "git+https://github.com/DreamShepherd2006/nanobot.git@dbdb146f" \
-    && echo "[CAG+nanobot] installed"
+    && echo "[CAG+nanobot+markitdown] installed"
 
 # ── 0.0.0.0 gateway 绑定 ─────────────────────────────────────────────
 RUN SITE_PKG=$(python3 -c 'import site; print(site.getsitepackages()[0])') && \
@@ -28,6 +29,10 @@ RUN python3 -m cloud_agent_gateway.deploy.cloud.patch_weixin_reload \
     && python3 -m cloud_agent_gateway.deploy.cloud.patch_dingtalk_reload \
     && python3 -m cloud_agent_gateway.deploy.cloud.patch_qq_reload \
     && echo "[patch] channels"
+
+# ── Marp: Markdown → PPTX/PDF/HTML (Node.js already installed above) ──
+RUN npm install -g @marp-team/marp-cli \
+    && echo "[marp] Markdown-to-presentation renderer installed"
 
 EXPOSE 7860
 

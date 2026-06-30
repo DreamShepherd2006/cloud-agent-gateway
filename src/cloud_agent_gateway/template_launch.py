@@ -95,6 +95,14 @@ def main() -> None:
     print(f"    instances  → {link}")
     print(f"    channels   → {channels_dir}")
 
+    # ── 3.5. MCP auto-injection (CAG tools → nanobot MCP servers) ──
+    print("── MCP ──")
+    try:
+        from cloud_agent_gateway.mcp import inject_mcp_config
+        inject_mcp_config(config_path)
+    except Exception as exc:
+        print(f"    ⚠️  MCP injection failed: {exc}")
+
     # ── 4. Gateway (matches Cloud Native entrypoint.sh) ──
     print("── Gateway ──")
     with open(config_path) as f:
