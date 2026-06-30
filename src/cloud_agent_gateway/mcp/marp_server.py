@@ -158,11 +158,11 @@ def main() -> None:
             ]
 
             # Custom themes: point marp at the themes directory
+            # --theme-set must come AFTER the markdown file (marp CLI requirement)
             if theme not in _BUILTIN_THEMES and themes.get(theme):
-                # Insert before the markdown file (works with both marp and npx)
                 md_idx = args.index(md_file)
-                args.insert(md_idx, str(_THEMES_DIR))
-                args.insert(md_idx, "--theme-set")
+                args.insert(md_idx + 1, str(_THEMES_DIR))
+                args.insert(md_idx + 1, "--theme-set")
 
             result = subprocess.run(
                 args,
