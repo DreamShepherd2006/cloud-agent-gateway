@@ -351,7 +351,85 @@ _rows = "\n".join(
     f"| {b.icon} {b.display} | [绑定{b.display}](/bind/{b.name}) |"
     for b in _bindings
 )
-BINDING_CHAT_CONTENT = f"""\
+def _get_package_source(pkg_name: str) -> dict | None:
+    """Read pip direct_url.json for git-installed package → {repo, revision, commit, url}."""
+    try:
+        from importlib.metadata import distribution, PackageNotFoundError
+        dist = distribution(pkg_name)
+    except Exception:
+        return None
+    direct_url = dist._path / "direct_url.json"
+    if not direct_url.is_file():
+        return None
+    try:
+        import json
+        info = json.loads(direct_url.read_text())
+    except Exception:
+        return None
+    url = info.get("url", "")
+    repo = ""
+    if "github.com/" in url:
+        repo = url.split("github.com/")[-1].replace(".git", "")
+    revision = ""
+    commit = ""
+    vcs = info.get("vcs_info", {})
+    if isinstance(vcs, dict):
+        revision = vcs.get("requested_revision", "")
+        commit = vcs.get("commit_id", "")
+    return {"repo": repo, "revision": revision, "commit": commit, "url": url}
+
+
+def _build_source_link(info: dict | None, default_repo: str, default_branch: str = "") -> str:
+    """Build a GitHub markdown link from package source info, with fallback."""
+    if info and info.get("repo"):
+        repo = info["repo"]
+        rev = info.get("revision", "")
+        commit_short = info.get("commit", "")[:7] if info.get("commit") else ""
+
+        if rev.startswith("v"):
+            display = f"{repo} @{rev}"
+            href = f"https://github.com/{repo}/tree/{rev}"
+        elif rev and len(rev) >= 7:
+            display = f"{repo} @{rev[:7]}"
+            href = f"https://github.com/{repo}/commit/{commit_short or rev[:7]}"
+        elif commit_short:
+            display = f"{repo} @{commit_short}"
+            href = f"https://github.com/{repo}/commit/{commit_short}"
+        else:
+            display = repo
+            href = f"https://github.com/{repo}"
+    else:
+        repo = default_repo
+        display = repo
+        if default_branch:
+            href = f"https://github.com/{repo}/tree/{default_branch}"
+        else:
+            href = f"https://github.com/{repo}"
+
+    return f"[{display}]({href})"
+
+
+def _build_binding_content() -> str:
+    """Build the binding chat markdown with dynamic source links."""
+    cag_info = _get_package_source("cloud-agent-gateway")
+    nanobot_info = _get_package_source("nanobot-ai")
+
+    cag_link = _build_source_link(cag_info, "DreamShepherd2006/cloud-agent-gateway")
+    nanobot_link = _build_source_link(nanobot_info, "DreamShepherd2006/nanobot", "nightly")
+
+    # Dockerfile link: derive from CAG repo/revision
+    if cag_info and cag_info.get("repo") and cag_info.get("revision"):
+        dockerfile_href = f"https://github.com/{cag_info['repo']}/blob/{cag_info['revision']}/Dockerfile"
+        dockerfile_display = f"{cag_info['repo']}/Dockerfile"
+        dockerfile_link = f"[{dockerfile_display}]({dockerfile_href})"
+    elif cag_info and cag_info.get("repo") and cag_info.get("commit"):
+        dockerfile_href = f"https://github.com/{cag_info['repo']}/blob/{cag_info['commit'][:7]}/Dockerfile"
+        dockerfile_display = f"{cag_info['repo']}/Dockerfile @{cag_info['commit'][:7]}"
+        dockerfile_link = f"[{dockerfile_display}]({dockerfile_href})"
+    else:
+        dockerfile_link = "[DreamShepherd2006/cloud-agent-gateway/Dockerfile](https://github.com/DreamShepherd2006/cloud-agent-gateway/blob/staging/Dockerfile)"
+
+    return f"""\
 # 📱 社交通道配置
 
 将 nanobot 连接到社交通道，随时随地对话。
@@ -390,16 +468,13 @@ Agent 生成的输出文件存放在此，可随时下载。
 
 | 组件 | 源码 |
 |------|------|
-| cloud-agent-gateway（框架层） | [GitHub](https://github.com/DreamShepherd2006/cloud-agent-gateway) |
-| nanobot（AI 引擎 · nightly） | [GitHub](https://github.com/DreamShepherd2006/nanobot/tree/nightly) |
+| cloud-agent-gateway（框架层） | {cag_link} |
+| Dockerfile（部署模板） | {dockerfile_link} |
+| nanobot（AI 引擎） | {nanobot_link} |
 
 🧭 **浏览源码** → 点击上方链接查看完整代码
 
-🔄 **部署到空间** → 在 ModelScope 创建空间时选择「通过 Git 上传」，输入：
-```
-https://github.com/DreamShepherd2006/cloud-agent-gateway
-```
-部署后空间的「文件」tab 即可看到完整框架源码。"""
+🔄 **部署新空间** → 点击上方 Dockerfile 链接，复制内容粘贴到新空间的 Dockerfile，重建即可获得完全相同的环境。"""
 
 
 def _get_binding_chat_id() -> str | None:
@@ -470,15 +545,15 @@ def _ensure_binding_session():
             "last_consolidated": 0,
         },
         {
-            "role": "user", "content": BINDING_CHAT_CONTENT,
+            "role": "user", "content": _build_binding_content(),
             "timestamp": _now,
         },
     ])
 
     # WebUI transcript
     platform.write_webui_transcript(_agent, _cid, [
-        {"event": "delta", "text": BINDING_CHAT_CONTENT, "chat_id": _cid},
-        {"event": "stream_end", "text": BINDING_CHAT_CONTENT, "chat_id": _cid},
+        {"event": "delta", "text": _build_binding_content(), "chat_id": _cid},
+        {"event": "stream_end", "text": _build_binding_content(), "chat_id": _cid},
         {"event": "turn_end", "chat_id": _cid},
     ])
 
@@ -1028,7 +1103,7 @@ async def ws_proxy(websocket: WebSocket) -> None:
                                             "chat_id": _binding_cid,
                                         }))
                                         await websocket.send_text(json.dumps({
-                                            "event": "delta", "data": BINDING_CHAT_CONTENT,
+                                            "event": "delta", "data": _build_binding_content(),
                                             "chat_id": _binding_cid,
                                             "sender_id": f"oauth:{username}",
                                             "sender_name": username,
@@ -1151,13 +1226,13 @@ async def ws_proxy(websocket: WebSocket) -> None:
                             _found = False
                             for _entry in _existing[1:]:
                                 if _entry.get("role") == "user":
-                                    _entry["content"] = BINDING_CHAT_CONTENT
+                                    _entry["content"] = _build_binding_content()
                                     _entry["timestamp"] = _now
                                     _found = True
                                     break
                             if not _found:
                                 _existing.append({
-                                    "role": "user", "content": BINDING_CHAT_CONTENT,
+                                    "role": "user", "content": _build_binding_content(),
                                     "timestamp": _now,
                                 })
                             platform.write_session(_agent, current_chat_id, _existing)
@@ -1172,7 +1247,7 @@ async def ws_proxy(websocket: WebSocket) -> None:
                                     "last_consolidated": 0,
                                 },
                                 {
-                                    "role": "user", "content": BINDING_CHAT_CONTENT,
+                                    "role": "user", "content": _build_binding_content(),
                                     "timestamp": _now,
                                 },
                             ])
@@ -1180,8 +1255,8 @@ async def ws_proxy(websocket: WebSocket) -> None:
 
                         # WebUI transcript (always overwrite)
                         platform.write_webui_transcript(_agent, current_chat_id, [
-                            {"event": "delta", "text": BINDING_CHAT_CONTENT, "chat_id": current_chat_id},
-                            {"event": "stream_end", "text": BINDING_CHAT_CONTENT, "chat_id": current_chat_id},
+                            {"event": "delta", "text": _build_binding_content(), "chat_id": current_chat_id},
+                            {"event": "stream_end", "text": _build_binding_content(), "chat_id": current_chat_id},
                             {"event": "turn_end", "chat_id": current_chat_id},
                         ])
 
