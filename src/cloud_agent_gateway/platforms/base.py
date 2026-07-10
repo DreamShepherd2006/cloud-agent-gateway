@@ -232,7 +232,7 @@ class CloudPlatformProtocol(Protocol):
     def data_root(self) -> str:
         """Persistent data root for this platform."""
         try:
-            from squad_config_loader import load_config
+            from nanobot_legion.squad_config_loader import load_config
             return load_config().get("data_root", "/data")
         except Exception:
             return "/data"

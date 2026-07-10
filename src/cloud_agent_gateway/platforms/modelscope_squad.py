@@ -84,7 +84,7 @@ class ModelScopePlatform(PlatformProtocol):
     ) -> None:
         """Load configuration — file-first (squad_config.json), env-fallback."""
         try:
-            from squad_config_loader import (
+            from nanobot_legion.squad_config_loader import (
                 get_commander_whitelist,
                 get_peers,
                 get_user_agent_map,

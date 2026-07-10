@@ -85,7 +85,7 @@ class HFStagingPlatform(PlatformProtocol):
         if squad_roster is not None:
             self._squad_roster = squad_roster
 
-        from squad_config_loader import get_commander_whitelist, get_user_agent_map
+        from nanobot_legion.squad_config_loader import get_commander_whitelist, get_user_agent_map
         self._commander_whitelist = get_commander_whitelist()
         self._user_agent_map = get_user_agent_map()
 
