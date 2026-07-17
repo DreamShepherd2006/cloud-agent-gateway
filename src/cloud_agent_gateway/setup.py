@@ -16,6 +16,7 @@ Provider 列表来自 nanobot 官方 ``providers/registry.py``，自动跟随上
 from __future__ import annotations
 
 from datetime import datetime
+import glob
 import json
 import os
 import shutil
@@ -266,9 +267,6 @@ def _build_legion_config(form: dict[str, str]) -> tuple[dict, dict, dict]:
     return squad_config, neo_config, oauth_cfg
 
 
-LEGION_BACKUP_DIR = "legion_backup"  # deprecated — kept for old backup cleanup
-
-
 def _has_removed_agents(data_root: str) -> bool:
     """Check if there are archived (.removed.*) agent directories."""
     legion_instances = os.path.join(data_root, "legion", "instances")
@@ -281,34 +279,55 @@ def _has_removed_agents(data_root: str) -> bool:
 
 
 def _backup_legion_config(data_root: str) -> None:
-    """Archive all agent directories to .removed.* format for archive-area restore.
+    """Backup squad_config.json and archive active agent directories.
 
-    When switching from multi-agent to single-agent mode, all agent instance
-    directories (roster members, orphans, already-archived) are renamed to
-    the .removed.{timestamp} format so they appear in the archive area when
-    switching back.  squad_config.json is deleted to enter single-agent mode.
+    When switching from multi-agent to single-agent mode:
+    1. Backup squad_config.json as .{ts}.bak (preserve all peer zones as-is)
+    2. Archive active agent dirs (zone != "archived", including missing zone)
+       as .removed.{ts} — already-archived .removed.* dirs stay unchanged
+    3. Handle Errno 21 if squad_config.json path is a directory
+    4. Delete squad_config.json to trigger single-agent mode on restart
     """
     legion_instances = os.path.join(data_root, "legion", "instances")
+    squad_path = os.path.join(data_root, "legion", "squad_config.json")
+
     if not os.path.isdir(legion_instances):
         return
 
-    # Non-agent directories that should never be archived
-    _skip = {"_template", ".git", ".discarded", "logs", "memory", "sessions",
-             "cron", "repos", "docs", "skills", "workspace"}
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    count = 0
 
+    # 1. Backup squad_config.json (preserve all zones — do not modify)
+    peers: dict[str, dict] = {}
+    if os.path.isfile(squad_path):
+        try:
+            with open(squad_path, encoding="utf-8") as f:
+                squad_cfg = json.load(f)
+            peers = squad_cfg.get("peers", {})
+            backup_path = f"{squad_path}.{timestamp}.bak"
+            with open(backup_path, "w", encoding="utf-8") as f:
+                json.dump(squad_cfg, f, indent=2, ensure_ascii=False)
+            print(f"[setup] 📋 已备份 squad_config.json → {os.path.basename(backup_path)}", flush=True)
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"[setup] ⚠️ 备份 squad_config.json 失败: {e}", flush=True)
+
+    # 2. Archive only active agent directories
+    #    (zone != "archived" or missing zone → active)
+    count = 0
     for entry in sorted(os.listdir(legion_instances)):
-        if entry in _skip or entry.startswith("."):
-            continue
         entry_path = os.path.join(legion_instances, entry)
         if not os.path.isdir(entry_path):
             continue
-        # Only archive directories that contain config.json (agent instances)
+        # Skip already-archived or non-agent (no config.json)
+        if ".removed." in entry:
+            continue
+        if entry.startswith("."):
+            continue
         if not os.path.isfile(os.path.join(entry_path, "config.json")):
             continue
-        # Already archived — leave as-is
-        if ".removed." in entry:
+        # Check zone: skip archived agents
+        peer = peers.get(entry, {}) if isinstance(peers, dict) else {}
+        zone = peer.get("zone", "") if isinstance(peer, dict) else ""
+        if zone == "archived":
             continue
 
         new_name = f"{entry}.removed.{timestamp}"
@@ -317,17 +336,17 @@ def _backup_legion_config(data_root: str) -> None:
         print(f"[setup] 📦 已归档 {entry} → {new_name}", flush=True)
         count += 1
 
-    # Delete squad_config.json to trigger single-agent mode on restart
-    squad_path = os.path.join(data_root, "legion", "squad_config.json")
+    print(f"[setup] 📦 共归档 {count} 个活跃 agent", flush=True)
+
+    # 3. Handle Errno 21: squad_config.json exists as directory
+    if os.path.isdir(squad_path):
+        shutil.rmtree(squad_path)
+        print(f"[setup] ⚠️ squad_config.json 为目录，已移除", flush=True)
+
+    # 4. Delete squad_config.json → single-agent mode
     if os.path.isfile(squad_path):
         os.remove(squad_path)
         print(f"[setup] 🗑️ 已删除 squad_config.json（进入单 agent 模式）", flush=True)
-
-    # Clean up old-style backup if present
-    backup_dir = os.path.join(data_root, "legion_backup")
-    if os.path.exists(backup_dir):
-        shutil.rmtree(backup_dir)
-        print(f"[setup] 🧹 已清理旧格式备份", flush=True)
 
 
 def _update_neo_config(data_root: str, form: dict) -> None:
@@ -371,44 +390,142 @@ def _update_neo_config(data_root: str, form: dict) -> None:
         print(f"[setup]    📡 {ch_name}: enabled={ch.get('enabled')}", flush=True)
 
 
-def _restore_legion_config(data_root: str, form: dict) -> tuple[dict, dict, dict]:
-    """Create fresh legion config (only neo).
+def _restore_legion_config(data_root: str, form: dict) -> tuple[dict, dict | None, dict]:
+    """Restore Legion config from backup, or fresh start if no backup found.
 
-    Previously active agent directories were renamed to .removed.* by
-    _backup_legion_config.  They appear in the archive area of the agent
-    management UI for manual restore after startup.
+    1. Find latest squad_config.json.*.bak
+    2. Filter peers to zone != "archived" (missing zone → active)
+    3. Rename matching .removed.* dirs back to agent names
+    4. Return restored squad_config; fall back to neo-only fresh start if
+       no backup or zero active agents remain
     """
-    # Clean up old-style backup if present
-    backup_dir = os.path.join(data_root, "legion_backup")
-    if os.path.exists(backup_dir):
-        shutil.rmtree(backup_dir)
-        print(f"[setup] 🧹 已清理旧格式备份", flush=True)
+    legion_instances = os.path.join(data_root, "legion", "instances")
 
-    # Always fresh start — archived agents are restored from UI
-    squad_config, neo_config, oauth_cfg = _build_legion_config(form)
+    # Find latest backup
+    backups = sorted(glob.glob(os.path.join(data_root, "legion", "squad_config.json.*.bak")))
+    if not backups:
+        print("[setup] ℹ️ 未找到备份，全新创建 Legion 配置", flush=True)
+        squad_config, neo_config, oauth_cfg = _build_legion_config(form)
+        _migrate_legacy_instances(data_root)
+        _cleanup_stale_removed(data_root, squad_config)
+        return squad_config, neo_config, oauth_cfg
+
+    # Load latest backup
+    backup_path = backups[-1]
+    with open(backup_path, encoding="utf-8") as f:
+        old_cfg = json.load(f)
+    print(f"[setup] 📋 从备份恢复: {os.path.basename(backup_path)}", flush=True)
+
+    # Filter peers: zone != "archived" (missing zone → active)
+    old_peers = old_cfg.get("peers", {})
+    active_peers: dict[str, dict] = {}
+    for name, info in old_peers.items():
+        if not isinstance(info, dict):
+            continue
+        zone = info.get("zone", "")
+        if zone == "archived":
+            continue
+        # Preserve original ports; ensure zone is set
+        active_peers[name] = {
+            **info,
+            "zone": zone or "active",
+        }
+
+    if not active_peers:
+        print("[setup] ⚠️ 备份中无活跃 agent，全新创建", flush=True)
+        squad_config, neo_config, oauth_cfg = _build_legion_config(form)
+        _migrate_legacy_instances(data_root)
+        _cleanup_stale_removed(data_root, squad_config)
+        return squad_config, neo_config, oauth_cfg
+
+    # Restore agent dirs from .removed.*: rename back for each active peer
+    restored_names: set[str] = set()
+    if os.path.isdir(legion_instances):
+        for entry in sorted(os.listdir(legion_instances)):
+            if ".removed." not in entry:
+                continue
+            orig_name = entry.split(".removed.", 1)[0]
+            if orig_name not in active_peers:
+                continue
+            src = os.path.join(legion_instances, entry)
+            dst = os.path.join(legion_instances, orig_name)
+            if not os.path.isdir(src):
+                continue
+            # Handle target collision: remove existing junk (directory or file)
+            if os.path.lexists(dst):
+                if os.path.isdir(dst):
+                    shutil.rmtree(dst)
+                else:
+                    os.remove(dst)
+            shutil.move(src, dst)
+            print(f"[setup] 🔄 已恢复: {entry} → {orig_name}", flush=True)
+            restored_names.add(orig_name)
+
     _migrate_legacy_instances(data_root)
-    _cleanup_stale_removed(data_root, squad_config)
-    print(f"[setup] ✨ 全新 Legion 配置 (仅 neo)", flush=True)
+
+    # Build squad_config from restored peers
+    deploy_platform = _detect_deploy_platform()
+    commander_user = form.get("commander_user", "").strip()
+
+    squad_config: dict = {
+        "deploy_platform": deploy_platform,
+        "data_root": data_root,
+        "webui_agent": "neo",
+        "commander_whitelist": [commander_user] if commander_user else old_cfg.get("commander_whitelist", []),
+        "user_agent_map": old_cfg.get("user_agent_map", {}),
+        "relay_timeout": old_cfg.get("relay_timeout", 120),
+        "gatekeeper_port": old_cfg.get("gatekeeper_port", 7860),
+        "dlq_dir": os.path.join(data_root, "dlq"),
+        "resurrection_whitelist": old_cfg.get("resurrection_whitelist", ["neo"]),
+        "peers": active_peers,
+    }
+
+    # Neo config: if restored from backup, update existing; otherwise generate fresh
+    neo_config = None
+    if "neo" in restored_names:
+        _update_neo_config(data_root, form)
+    else:
+        # Neo was not archived — generate fresh config and ensure neo in peers
+        _, neo_cfg, _ = _build_legion_config(form)
+        neo_config = neo_cfg
+        # Add neo to active_peers if missing
+        if "neo" not in active_peers:
+            active_peers["neo"] = _build_squad_peers().get("neo", {
+                "id": "squad:commander", "gateway_port": 18790, "ws_port": 18791
+            })
+
+    oauth_cfg = _build_oauth(form)
+    print(f"[setup] ✅ 已从备份恢复 {len(active_peers)} 个活跃 agent: {list(active_peers.keys())}", flush=True)
     return squad_config, neo_config, oauth_cfg
 
 
 def _cleanup_stale_removed(data_root: str, squad_config: dict) -> None:
-    """Remove .removed.* archive dirs for agents that are now in the squad roster."""
+    """Restore .removed.* dirs for agents now in the roster (rename back).
+
+    No longer deletes — the legacy delete behavior lost data during mode switches.
+    """
     legion_instances = os.path.join(data_root, "legion", "instances")
     if not os.path.isdir(legion_instances):
         return
 
     roster = set(squad_config.get("peers", {}).keys())
-    for entry in os.listdir(legion_instances):
-        # Match {name}.removed.{timestamp} pattern
+    for entry in sorted(os.listdir(legion_instances)):
         if ".removed." not in entry:
             continue
-        base_name = entry.split(".removed.")[0]
-        if base_name in roster:
-            rm_path = os.path.join(legion_instances, entry)
-            if os.path.isdir(rm_path):
-                shutil.rmtree(rm_path)
-                print(f"[setup] 🧹 已清理已归档副本: {entry}", flush=True)
+        base_name = entry.split(".removed.", 1)[0]
+        if base_name not in roster:
+            continue
+        src = os.path.join(legion_instances, entry)
+        dst = os.path.join(legion_instances, base_name)
+        if not os.path.isdir(src):
+            continue
+        if os.path.lexists(dst):
+            if os.path.isdir(dst):
+                shutil.rmtree(dst)
+            else:
+                os.remove(dst)
+        shutil.move(src, dst)
+        print(f"[setup] 🔄 已恢复归档: {entry} → {base_name}", flush=True)
 
 
 def _build_provider_form_data() -> tuple[str, str, str]:
@@ -814,6 +931,10 @@ async def post_setup(request: Request) -> JSONResponse:
             # Write squad_config.json
             squad_path = os.path.join(DATA_ROOT, "legion", "squad_config.json")
             os.makedirs(os.path.dirname(squad_path), exist_ok=True)
+            # Handle Errno 21: path exists as directory
+            if os.path.isdir(squad_path):
+                shutil.rmtree(squad_path)
+                print(f"[setup] ⚠️ squad_config.json 为目录，已移除", flush=True)
             with open(squad_path, "w", encoding="utf-8") as f:
                 json.dump(squad_config, f, indent=2, ensure_ascii=False)
             print(f"[setup] ✅ squad_config.json 已写入: {json.dumps(list(squad_config.keys()))}", flush=True)
