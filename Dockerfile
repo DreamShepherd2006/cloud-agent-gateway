@@ -1,49 +1,58 @@
-FROM python:3.12-slim
-
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+# ── 1. System: Node 20 + git ──────────────────────────────
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg git bubblewrap openssh-client && \
+    mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && apt-get install -y --no-install-recommends nodejs && \
+    apt-get purge -y gnupg && apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-
-# ── 系统依赖 ──────────────────────────────────────────────────────────
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl git nodejs npm chromium fonts-wqy-microhei \
-    && rm -rf /var/lib/apt/lists/*
-
-# ── Marp 浏览器路径 ───────────────────────────────────────────────────
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-
-# ── CAG v0.1.10 + nanobot ──────────────────────────────────────────────
-# 🔄 bump BUILD to force reinstall: 4
-RUN echo [bust=4] && pip install --no-cache-dir \
-    "git+https://github.com/DreamShepherd2006/cloud-agent-gateway.git@v0.1.10" \
-    itsdangerous \
-    markitdown \
-    "git+https://github.com/DreamShepherd2006/nanobot.git@dbdb146f" \
-    && echo "[CAG+nanobot+markitdown] installed"
-
-# ── 0.0.0.0 gateway 绑定 ─────────────────────────────────────────────
-RUN SITE_PKG=$(python3 -c 'import site; print(site.getsitepackages()[0])') && \
-    CMD_FILE="$SITE_PKG/nanobot/cli/commands.py" && \
-    sed -i 's/config\.gateway\.host = "127\.0\.0\.1"/config.gateway.host = "0.0.0.0"/g' "$CMD_FILE" && \
-    sed -i '/^def _run_gateway/,/^def /{s/host = host if host is not None else api_cfg\.host/host = "0.0.0.0"/}' "$CMD_FILE" && \
-    echo "[patch] 0.0.0.0"
-
-# ── 通道自动重载 ──────────────────────────────────────────────────────
-RUN python3 -m cloud_agent_gateway.deploy.cloud.patch_weixin_reload \
-    && python3 -m cloud_agent_gateway.deploy.cloud.patch_feishu_reload \
-    && python3 -m cloud_agent_gateway.deploy.cloud.patch_dingtalk_reload \
-    && python3 -m cloud_agent_gateway.deploy.cloud.patch_qq_reload \
-    && echo "[patch] channels"
-
-# ── Marp: Markdown → PPTX/PDF/HTML ────────────────────────────────────
-RUN npm install -g @marp-team/marp-cli \
-    && echo "[marp] installed"
-
-# ── 验证 MCP 工具链 ───────────────────────────────────────────────────
-RUN python3 -c "from mcp.server.fastmcp import FastMCP; print('✓ mcp SDK')" && \
-    python3 -c "from cloud_agent_gateway.mcp import get_mcp_server_configs; \
-    cfg = get_mcp_server_configs(); print('✓ MCP servers:', list(cfg.keys()))" && \
-    echo "[verify] MCP toolchain OK"
-
+# ── 2. nanobot (Python only, webui comes from legion) ─────
+ENV NANOBOT_SKIP_WEBUI_BUILD=1
+RUN pip install --break-system-packages \
+        git+https://github.com/DreamShepherd2006/nanobot.git@dbdb146f && \
+    echo "✅ nanobot @dbdb146f"
+# ── 3. CAG + channel patches ─────────────────────────────
+RUN pip install --break-system-packages \
+         git+https://github.com/DreamShepherd2006/cloud-agent-gateway.git@v0.2.0 && \
+    python3 -m cloud_agent_gateway.deploy.cloud.patch_qq_reload && \
+    python3 -m cloud_agent_gateway.deploy.cloud.patch_feishu_reload && \
+    python3 -m cloud_agent_gateway.deploy.cloud.patch_dingtalk_reload && \
+    python3 -m cloud_agent_gateway.deploy.cloud.patch_weixin_reload && \
+    echo "✅ cag + channel patches"
+# ── 4. nanobot-legion: patches + webui source + assets ────
+RUN echo "[bust=16]" && pip install --break-system-packages \
+         git+https://github.com/DreamShepherd2006/nanobot-legion.git@v0.1.0 && \
+    python3 -m nanobot_legion.install && \
+    echo "✅ nanobot-legion"
+# ── 4b. Build Legion webui from source ────────────────────
+RUN cd /app/legion_webui_src && \
+    npm install && \
+    npm run build && \
+    mkdir -p /app/legion_webui && \
+    cp -r /app/nanobot/web/dist/* /app/legion_webui/ && \
+    rm -rf /app/nanobot/web/dist && \
+    rm -rf /app/legion_webui_src && \
+    echo "✅ legion webui built"
+# ── 5. WhatsApp bridge ────────────────────────────────────
+RUN NANOBOT_DIR=$(python3 -c "import nanobot, os; print(os.path.dirname(nanobot.__file__))") && \
+    cp -r "$NANOBOT_DIR/bridge" /app/bridge && \
+    cd /app/bridge && \
+    git config --global --add url."https://github.com/".insteadOf ssh://git@github.com/ && \
+    git config --global --add url."https://github.com/".insteadOf git@github.com: && \
+    npm install && npm run build && \
+    cd /app && rm -rf /app/bridge/node_modules && \
+    echo "✅ whatsapp bridge"
+# ── 6. Reset marker ──────────────────────────────────────
+RUN echo "PURGE_OAUTH=0" > /app/reset-setup.ini
+# ── 7. User ──────────────────────────────────────────────
+RUN useradd -m -u 1000 -s /bin/bash nanobot && \
+    mkdir -p /home/nanobot/.nanobot && \
+    chown -R nanobot:nanobot /home/nanobot /app
+USER nanobot
+ENV HOME=/home/nanobot \
+    SQUAD_LEGION=true
 EXPOSE 7860
-
-# Phase 1 (no oauth.json) → setup 表单; Phase 2 → 启动
-CMD ["bash", "-c", "[ -f /data/oauth.json ] || [ -f /mnt/workspace/oauth.json ] && exec python3 -m cloud_agent_gateway.template_launch || exec python3 -m cloud_agent_gateway.setup"]
+ENTRYPOINT ["/app/entrypoint.sh"]
